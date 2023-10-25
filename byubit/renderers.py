@@ -150,8 +150,6 @@ class MainWindow(tk.Frame):
             self.canvases.append(canvas)
             tabs.add(tab, text=f"World {index+1}: {name}")
 
-            self._display_current_record(index)
-
         # Add buttons
         button_widget = tk.Frame(self)
 
@@ -269,6 +267,8 @@ class MainWindow(tk.Frame):
         button_widget.grid_propagate(True)
 
         button_widget.grid(row=2, column=0, padx=15, pady=(0, 10), sticky="nsew")
+
+        tabs.bind('<<NotebookTabChanged>>', lambda event : last_click())
 
     def _display_current_record(self, which):
         self._display_record(which, self.cur_pos[which], self.histories[which][1][self.cur_pos[which]])
