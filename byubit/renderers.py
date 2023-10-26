@@ -1,5 +1,3 @@
-import os
-
 import matplotlib
 from matplotlib import pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -130,7 +128,6 @@ class MainWindow(tk.Frame):
         Grid.rowconfigure(label_widget, 1, weight=1)
 
         label_widget.grid(row=0, column=0, pady=(0, 0))
-        # Grid.rowconfigure(self, 0, weight=1)
         Grid.columnconfigure(self, 0, weight=1)
 
         tabs = ttk.Notebook(self, style='TNotebook', height=int(size[1] * 100), width=int(size[0] * 100))
@@ -149,6 +146,7 @@ class MainWindow(tk.Frame):
             Grid.columnconfigure(tab, 0, weight=1)
             self.canvases.append(canvas)
             tabs.add(tab, text=f"World {index+1}: {name}")
+            self._display_current_record(index)
 
         # Add buttons
         button_widget = tk.Frame(self)
@@ -268,10 +266,22 @@ class MainWindow(tk.Frame):
 
         button_widget.grid(row=2, column=0, padx=15, pady=(0, 10), sticky="nsew")
 
-        tabs.bind('<<NotebookTabChanged>>', lambda event : last_click())
+        def on_tab_change(event):
+            tab_name = "current"
+            which = tabs.index(tab_name)
+            if which and which < len(self.histories):
+                self._update_top_line(which, self.cur_pos[which])
+        tabs.bind('<<NotebookTabChanged>>', lambda event: on_tab_change(event))
+
+    def _update_top_line(self, which: int, index: int):
+        record = self.histories[which][1][index]
+        self.f_and_line_number_var.set(f"{index}: {record.name} [{record.filename} line {record.line_number}]")
+        self.error_var.set("" if record.error_message is None else record.error_message)
+
 
     def _display_current_record(self, which):
         self._display_record(which, self.cur_pos[which], self.histories[which][1][self.cur_pos[which]])
+
 
     def _display_record(self, which: int, index: int, record: BitHistoryRecord):
         if self.verbose:
@@ -279,8 +289,7 @@ class MainWindow(tk.Frame):
 
         self.canvases[which].axes.clear()  # Clear the canvas.
 
-        self.f_and_line_number_var.set(f"{index}: {record.name} [{record.filename} line {record.line_number}]")
-        self.error_var.set("" if record.error_message is None else record.error_message)
+        self._update_top_line(which, index)
         draw_record(self.canvases[which].axes, record)
 
         # Trigger the canvas to update and redraw.
