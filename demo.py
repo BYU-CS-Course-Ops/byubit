@@ -20,4 +20,5 @@ def demo(bit):
     bit.paint("indianred")
 
 
-demo(Bit.new_bit)
+if __name__ == '__main__':
+    demo(Bit.new_bit)
