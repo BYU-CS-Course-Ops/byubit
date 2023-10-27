@@ -14,22 +14,29 @@ from byubit.core import BitHistoryRenderer
 class MplCanvas(FigureCanvasTkAgg):
 
     def __init__(self, parent, figsize=(10, 20), dpi=100):
-        self.fig = Figure(figsize=figsize, dpi=dpi)
+        self.fig = Figure(figsize=figsize, dpi=dpi, alpha=0, facecolor='none')
         self.axes = self.fig.add_axes([0, 0, 1, 1])
+        self.fig.set_alpha(0)
+
         super(MplCanvas, self).__init__(self.fig, master=parent)
 
 
 class MainWindow(tk.Frame):
     histos: List[str]
 
+    @staticmethod
+    def config_child_as_first_in_grid(child, master):
+        child.grid(row=0, column=0, pady=(0, 0))
+        Grid.rowconfigure(master, 0, weight=1)
+        Grid.columnconfigure(master, 0, weight=1)
+        master.grid_propagate(True)
+
     def __init__(self, parent, *args, **kwargs):
         super(MainWindow, self).__init__(parent, *args, **kwargs)
 
-        self.grid_propagate(True)
-
         self.histos = ["World 1", "World 2"]
 
-        # Create the maptlotlib FigureCanvas objects,
+        # Create the matplotlib FigureCanvas objects,
         # each which defines a single set of axes as self.axes.
         self.canvases = []
 
@@ -39,60 +46,56 @@ class MainWindow(tk.Frame):
         s.configure('TNotebook.Tab', font=('URW Gothic L', '17'))
         style.configure('TNotebook', tabposition='s')
 
-        label_widget = tk.Frame(self)
+        tabs = ttk.Notebook(master=self, style='TNotebook')
+        self.config_child_as_first_in_grid(child=tabs, master=self)
 
-        # Create messages that we can update
-        self.f_and_line_number_var = StringVar()
-        self.f_and_line_number_var.set("")
-
-        function_line_label = tk.Label(label_widget,
-                         width=60,
-                         font=("Arial", 17),
-                         padx=25,
-                         textvariable=self.f_and_line_number_var)
-        function_line_label.bind('<Configure>', lambda e: function_line_label.config(wraplength=function_line_label.winfo_width()))
-        function_line_label.grid(row=0, column=0, pady=(0, 0))
-        Grid.rowconfigure(label_widget, 0, weight=1)
-        Grid.columnconfigure(label_widget, 0, weight=1)
-
-        label_widget.grid(row=0, column=0, pady=(0, 0))
-        Grid.columnconfigure(self, 0, weight=1)
-
-        tabs = ttk.Notebook(self, style='TNotebook', height=int(400), width=int(400))
-        tabs.grid(row=1, column=0, pady=(0, 0))
-        Grid.rowconfigure(self, 1, weight=1)
+        self.top_lines = []
 
         for index, name in enumerate(self.histos):
-            tab = ttk.Frame(master=tabs)
-            canvas = MplCanvas(
-                parent=tab,
-                figsize=(8.0, 8.0),
-                dpi=100
-            )
-            canvas.get_tk_widget().grid(row=0, column=0, pady=(0, 0))
-            Grid.rowconfigure(tab, 0, weight=1)
-            Grid.columnconfigure(tab, 0, weight=1)
-            self.canvases.append(canvas)
-            tabs.add(tab, text=f"World {index+1}: {name}")
-            self._display_current_record(index)
+            tab = tk.Frame(master=tabs, background='')
 
-        def on_tab_change(event):
-            tab_name = "current"
-            which = tabs.index(tab_name)
-            self._update_top_line(which)
-        tabs.bind('<<NotebookTabChanged>>', lambda event: on_tab_change(event))
+            label_widget = tk.Frame(master=tab, background='')
+            label_widget.grid(row=0, column=0, pady=(0, 0))
+            Grid.columnconfigure(tab, 0, weight=1)
+
+            # Create messages that we can update
+            self.top_lines.append(StringVar())
+            self.top_lines[index].set("Hello")
+
+            function_line_label = tk.Label(label_widget,
+                                           width=60,
+                                           font=("Arial", 17),
+                                           padx=25,
+                                           textvariable=self.top_lines[index])
+
+            function_line_label.bind('<Configure>',
+                                     lambda e: function_line_label.config(wraplength=function_line_label.winfo_width()))
+            self.config_child_as_first_in_grid(child=function_line_label, master=label_widget)
+
+            tab_grid = tk.Frame(master=tab, background='')
+            tab_grid.grid(row=1, column=0, pady=(0, 0))
+            Grid.rowconfigure(tab, 1, weight=1)
+
+            canvas = MplCanvas(
+                parent=tab_grid,
+                figsize=(8.0, 8.0),
+                dpi=100,
+            )
+            self.config_child_as_first_in_grid(child=canvas.get_tk_widget(), master=tab_grid)
+
+            self.canvases.append(canvas)
+            tabs.add(tab, text=f"World {index + 1}: {name}")
+            self._display_current_record(index)
 
     def _update_top_line(self, which: int):
         record = self.histos[which]
-        self.f_and_line_number_var.set(f"{record}")
-
+        self.top_lines[which].set(f"{record}")
+        print(which)
 
     def _display_current_record(self, which):
         self._display_record(which)
 
-
     def _display_record(self, which: int):
-
         self.canvases[which].axes.clear()  # Clear the canvas.
 
         self._update_top_line(which)
@@ -100,8 +103,6 @@ class MainWindow(tk.Frame):
 
         # Trigger the canvas to update and redraw.
         self.canvases[which].draw()
-
-
 
     class AnimatedRenderer(BitHistoryRenderer):
         """Displays the world, step-by-step
