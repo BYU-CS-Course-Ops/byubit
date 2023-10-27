@@ -21,18 +21,32 @@ class MplCanvas(FigureCanvasTkAgg):
         super(MplCanvas, self).__init__(self.fig, master=parent)
 
 
-class MainWindow(tk.Frame):
+class AutoGridFrame(tk.Frame):
+    index = 0
+
+    def __init__(self, master, *args, **kwargs):
+        super().__init__(master, *args, background='', **kwargs)
+        Grid.columnconfigure(self, 0, weight=1)
+        self.grid_propagate(True)
+
+    def _add_to_grid(self, child):
+        child.grid(row=self.index, column=0, pady=(0, 0))
+
+    def add_to_grid_flex_height(self, child):
+        self._add_to_grid(child)
+        Grid.rowconfigure(self, self.index, weight=1)
+        self.index += 1
+
+    def add_to_grid_static_height(self, child):
+        self._add_to_grid(child)
+        self.index += 1
+
+
+class MainWindow(AutoGridFrame):
     histos: List[str]
 
-    @staticmethod
-    def config_child_as_first_in_grid(child, master):
-        child.grid(row=0, column=0, pady=(0, 0))
-        Grid.rowconfigure(master, 0, weight=1)
-        Grid.columnconfigure(master, 0, weight=1)
-        master.grid_propagate(True)
-
     def __init__(self, parent, *args, **kwargs):
-        super(MainWindow, self).__init__(parent, *args, **kwargs)
+        super().__init__(parent, *args, **kwargs)
 
         self.histos = ["World 1", "World 2"]
 
@@ -47,16 +61,15 @@ class MainWindow(tk.Frame):
         style.configure('TNotebook', tabposition='s')
 
         tabs = ttk.Notebook(master=self, style='TNotebook')
-        self.config_child_as_first_in_grid(child=tabs, master=self)
+        self.add_to_grid_flex_height(tabs)
 
         self.top_lines = []
 
         for index, name in enumerate(self.histos):
-            tab = tk.Frame(master=tabs, background='')
+            tab = AutoGridFrame(master=tabs)
 
-            label_widget = tk.Frame(master=tab, background='')
-            label_widget.grid(row=0, column=0, pady=(0, 0))
-            Grid.columnconfigure(tab, 0, weight=1)
+            label_widget = AutoGridFrame(master=tab)
+            tab.add_to_grid_static_height(label_widget)
 
             # Create messages that we can update
             self.top_lines.append(StringVar())
@@ -70,18 +83,17 @@ class MainWindow(tk.Frame):
 
             function_line_label.bind('<Configure>',
                                      lambda e: function_line_label.config(wraplength=function_line_label.winfo_width()))
-            self.config_child_as_first_in_grid(child=function_line_label, master=label_widget)
+            label_widget.add_to_grid_flex_height(function_line_label)
 
-            tab_grid = tk.Frame(master=tab, background='')
-            tab_grid.grid(row=1, column=0, pady=(0, 0))
-            Grid.rowconfigure(tab, 1, weight=1)
+            tab_grid = AutoGridFrame(master=tab)
+            tab.add_to_grid_flex_height(tab_grid)
 
             canvas = MplCanvas(
                 parent=tab_grid,
                 figsize=(8.0, 8.0),
                 dpi=100,
             )
-            self.config_child_as_first_in_grid(child=canvas.get_tk_widget(), master=tab_grid)
+            tab_grid.add_to_grid_flex_height(canvas.get_tk_widget())
 
             self.canvases.append(canvas)
             tabs.add(tab, text=f"World {index + 1}: {name}")
