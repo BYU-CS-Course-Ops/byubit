@@ -4,7 +4,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
 import tkinter as tk
-from tkinter import ttk, Grid, StringVar
+from tkinter import ttk, StringVar, Misc
 
 from typing import List, Tuple
 
@@ -60,22 +60,28 @@ class LastFrameRenderer(BitHistoryRenderer):
 
 
 class AutoSizingGridFrame(tk.Frame):
+    """
+    A tk Frame that uses grid layout, but automatically resizes to fit its contents
+    """
     index = 0
 
     def __init__(self, master, *args, **kwargs):
         super().__init__(master, *args, background='', **kwargs)
-        Grid.columnconfigure(self, 0, weight=1)
+        Misc.grid_columnconfigure(self, 0, weight=1)
         self.grid_propagate(True)
 
     def _add_to_grid(self, child):
+        # Tells the child what row it is in
         child.grid(row=self.index, column=0, pady=(0, 0), padx=(0, 0))
 
     def add_to_grid_flex_height(self, child):
+        # Adds the child to the grid, and tells the grid to make the child expand
         self._add_to_grid(child)
-        Grid.rowconfigure(self, self.index, weight=1)
+        Misc.grid_rowconfigure(self, self.index, weight=1)
         self.index += 1
 
     def add_to_grid_static_height(self, child):
+        # Adds the child to the grid, and tells the grid not make the child expand
         self._add_to_grid(child)
         self.index += 1
 
@@ -130,6 +136,7 @@ class MainWindow(AutoSizingGridFrame):
         self.top_errors = []
 
         for index, (name, _) in enumerate(histories):
+            # A tab for each world
             tab = AutoSizingGridFrame(master=tabs)
 
             self.label_widgets.append(AutoSizingGridFrame(master=tab))
@@ -151,20 +158,22 @@ class MainWindow(AutoSizingGridFrame):
                 "font": ("Arial", 17),
             }
 
+            # Add top line with function and line number
             add_label_to_widget(self.top_line_messages, self.top_lines, index, **common_props)
-
+            # Add second line with error message
             add_label_to_widget(self.top_err_messages, self.top_errors, index,
                                 fg="red", **common_props)
 
-            tab_grid = AutoSizingGridFrame(master=tab)
-            tab.add_to_grid_flex_height(tab_grid)
+            # Create an auto-sizing frame for the canvas
+            bit_image_frame = AutoSizingGridFrame(master=tab)
+            tab.add_to_grid_flex_height(bit_image_frame)
 
             canvas = MplCanvas(
-                parent=tab_grid,
+                parent=bit_image_frame,
                 figsize=size,
                 dpi=100
             )
-            tab_grid.add_to_grid_flex_height(canvas.get_tk_widget())
+            bit_image_frame.add_to_grid_flex_height(canvas.get_tk_widget())
             self.canvases.append(canvas)
 
             tabs.add(tab, text=f"World {index + 1}: {name}")
@@ -186,7 +195,7 @@ class MainWindow(AutoSizingGridFrame):
             padding=0
         )
         start_button.grid(row=2, column=0, sticky="nsew")
-        Grid.columnconfigure(button_widget, 0, weight=1)
+        Misc.grid_columnconfigure(button_widget, 0, weight=1)
 
         # Prev snapshot
         if has_snapshots:
@@ -211,7 +220,7 @@ class MainWindow(AutoSizingGridFrame):
             )
 
             prev_snap_button.grid(row=2, column=1, sticky="nsew")
-            Grid.columnconfigure(button_widget, 1, weight=1)
+            Misc.grid_columnconfigure(button_widget, 1, weight=1)
 
         # Back
         def back_click():
@@ -227,7 +236,7 @@ class MainWindow(AutoSizingGridFrame):
             padding=0
         )
         back_button.grid(row=2, column=2, sticky="nsew")
-        Grid.columnconfigure(button_widget, 2, weight=1)
+        Misc.grid_columnconfigure(button_widget, 2, weight=1)
 
         # Next
         def next_click():
@@ -243,7 +252,7 @@ class MainWindow(AutoSizingGridFrame):
             padding=0
         )
         next_button.grid(row=2, column=3, sticky="nsew")
-        Grid.columnconfigure(button_widget, 3, weight=1)
+        Misc.grid_columnconfigure(button_widget, 3, weight=1)
 
         # Next snapshot
         if has_snapshots:
@@ -267,7 +276,7 @@ class MainWindow(AutoSizingGridFrame):
                 padding=0
             )
             next_snap_button.grid(row=2, column=4, sticky="nsew")
-            Grid.columnconfigure(button_widget, 4, weight=1)
+            Misc.grid_columnconfigure(button_widget, 4, weight=1)
 
         # Last
         def last_click():
@@ -282,7 +291,7 @@ class MainWindow(AutoSizingGridFrame):
             padding=0
         )
         last_button.grid(row=2, column=5, sticky="nsew")
-        Grid.columnconfigure(button_widget, 5, weight=1)
+        Misc.grid_columnconfigure(button_widget, 5, weight=1)
 
         button_widget.grid_propagate(True)
 
