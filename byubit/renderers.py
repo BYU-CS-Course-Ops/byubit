@@ -113,7 +113,7 @@ class MainWindow(AutoSizingGridFrame):
             for _, history in histories
         )
 
-        # Create the maptlotlib FigureCanvas objects,
+        # Create the matplotlib FigureCanvas objects,
         # each which defines a single set of axes as self.axes.
         sizes = [determine_figure_size(history[0].world.shape) for _, history in histories]
         size = (max(x for x, _ in sizes), max(y for _, y in sizes))
@@ -297,7 +297,7 @@ class MainWindow(AutoSizingGridFrame):
 
         button_widget.grid(row=2, column=0, padx=15, pady=(0, 10), sticky="nsew")
 
-    def _display_current_record(self, which):
+    def _display_current_record(self, which: int):
         self._display_record(which, self.cur_pos[which], self.histories[which][1][self.cur_pos[which]])
 
     def _display_record(self, which: int, index: int, record: BitHistoryRecord):
