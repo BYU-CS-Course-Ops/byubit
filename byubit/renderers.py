@@ -1,12 +1,10 @@
-import os
-
 import matplotlib
 from matplotlib import pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
 import tkinter as tk
-from tkinter import ttk, Grid, StringVar
+from tkinter import ttk, StringVar, Misc
 
 from typing import List, Tuple
 
@@ -61,6 +59,33 @@ class LastFrameRenderer(BitHistoryRenderer):
         return all(history[-1].error_message is None for _, history in histories)
 
 
+class AutoSizingGridFrame(tk.Frame):
+    """
+    A tk Frame that uses grid layout, but automatically resizes to fit its contents
+    """
+    index = 0
+
+    def __init__(self, master, *args, **kwargs):
+        super().__init__(master, *args, background='', **kwargs)
+        Misc.grid_columnconfigure(self, 0, weight=1)
+        self.grid_propagate(True)
+
+    def _add_to_grid(self, child):
+        # Tells the child what row it is in
+        child.grid(row=self.index, column=0, pady=(0, 0), padx=(0, 0))
+
+    def add_to_grid_flex_height(self, child):
+        # Adds the child to the grid, and tells the grid to make the child expand
+        self._add_to_grid(child)
+        Misc.grid_rowconfigure(self, self.index, weight=1)
+        self.index += 1
+
+    def add_to_grid_static_height(self, child):
+        # Adds the child to the grid, and tells the grid not make the child expand
+        self._add_to_grid(child)
+        self.index += 1
+
+
 class MplCanvas(FigureCanvasTkAgg):
 
     def __init__(self, parent, figsize=(5, 4), dpi=100):
@@ -69,17 +94,16 @@ class MplCanvas(FigureCanvasTkAgg):
         super(MplCanvas, self).__init__(self.fig, master=parent)
 
 
-class MainWindow(tk.Frame):
+class MainWindow(AutoSizingGridFrame):
     histories: List[Tuple[str, List[BitHistoryRecord]]]
     cur_pos: List[int]
 
     def __init__(self, parent, histories, verbose=False, *args, **kwargs):
-        super(MainWindow, self).__init__(parent, *args, **kwargs)
+        super().__init__(parent, *args, **kwargs)
 
         self.histories = histories
         self.cur_pos = [len(history) - 1 for _, history in histories]
         self.verbose = verbose
-        self.grid_propagate(True)
 
         has_snapshots = any(
             any(
@@ -89,7 +113,7 @@ class MainWindow(tk.Frame):
             for _, history in histories
         )
 
-        # Create the maptlotlib FigureCanvas objects,
+        # Create the matplotlib FigureCanvas objects,
         # each which defines a single set of axes as self.axes.
         sizes = [determine_figure_size(history[0].world.shape) for _, history in histories]
         size = (max(x for x, _ in sizes), max(y for _, y in sizes))
@@ -101,55 +125,58 @@ class MainWindow(tk.Frame):
         s.configure('TNotebook.Tab', font=('URW Gothic L', '17'))
         style.configure('TNotebook', tabposition='s')
 
-        label_widget = tk.Frame(self)
+        tabs = ttk.Notebook(master=self, style='TNotebook')
+        self.add_to_grid_flex_height(tabs)
 
-        # Create messages that we can update
-        self.f_and_line_number_var = StringVar()
-        self.error_var = StringVar()
-        self.f_and_line_number_var.set("")
-        self.error_var.set("")
+        self.label_widgets = []
 
-        function_line_label = tk.Label(label_widget,
-                         width=60,
-                         font=("Arial", 17),
-                         padx=25,
-                         textvariable=self.f_and_line_number_var)
-        function_line_label.bind('<Configure>', lambda e: function_line_label.config(wraplength=function_line_label.winfo_width()))
-        function_line_label.grid(row=0, column=0, pady=(0, 0))
-        Grid.rowconfigure(label_widget, 0, weight=1)
-        Grid.columnconfigure(label_widget, 0, weight=1)
-
-        error_label = tk.Label(label_widget,
-                         width=60,
-                         font=("Arial", 17),
-                         fg="red",
-                         padx=25,
-                         textvariable = self.error_var)
-        error_label.bind('<Configure>', lambda e: error_label.config(wraplength=error_label.winfo_width()))
-        error_label.grid(row=1, column=0, pady=(0, 0))
-        Grid.rowconfigure(label_widget, 1, weight=1)
-
-        label_widget.grid(row=0, column=0, pady=(0, 0))
-        # Grid.rowconfigure(self, 0, weight=1)
-        Grid.columnconfigure(self, 0, weight=1)
-
-        tabs = ttk.Notebook(self, style='TNotebook', height=int(size[1] * 100), width=int(size[0] * 100))
-        tabs.grid(row=1, column=0, pady=(0, 0))
-        Grid.rowconfigure(self, 1, weight=1)
+        self.top_line_messages = []
+        self.top_lines = []
+        self.top_err_messages = []
+        self.top_errors = []
 
         for index, (name, _) in enumerate(histories):
-            tab = ttk.Frame(master=tabs)
+            # A tab for each world
+            tab = AutoSizingGridFrame(master=tabs)
+
+            self.label_widgets.append(AutoSizingGridFrame(master=tab))
+            tab.add_to_grid_static_height(self.label_widgets[index])
+
+            def add_label_to_widget(str_var_list, label_list, idx, **tk_label_kwargs):
+                # Create message that we can update
+                str_var_list.append(StringVar())
+                str_var_list[index].set("")
+                label_list.append(tk.Label(textvariable=str_var_list[idx], **tk_label_kwargs))
+                label_list[idx].bind('<Configure>', lambda e: (line := label_list[tabs.index('current')],
+                                                               line.config(wraplength=line.winfo_width())))
+                self.label_widgets[index].add_to_grid_flex_height(label_list[idx])
+
+            common_props = {
+                "master": self.label_widgets[index],
+                "width": 60,
+                "padx": 100,
+                "font": ("Arial", 17),
+            }
+
+            # Add top line with function and line number
+            add_label_to_widget(self.top_line_messages, self.top_lines, index, **common_props)
+            # Add second line with error message
+            add_label_to_widget(self.top_err_messages, self.top_errors, index,
+                                fg="red", **common_props)
+
+            # Create an auto-sizing frame for the canvas
+            bit_image_frame = AutoSizingGridFrame(master=tab)
+            tab.add_to_grid_flex_height(bit_image_frame)
+
             canvas = MplCanvas(
-                parent=tab,
+                parent=bit_image_frame,
                 figsize=size,
                 dpi=100
             )
-            canvas.get_tk_widget().grid(row=0, column=0, pady=(0, 0))
-            Grid.rowconfigure(tab, 0, weight=1)
-            Grid.columnconfigure(tab, 0, weight=1)
+            bit_image_frame.add_to_grid_flex_height(canvas.get_tk_widget())
             self.canvases.append(canvas)
-            tabs.add(tab, text=f"World {index+1}: {name}")
 
+            tabs.add(tab, text=f"World {index + 1}: {name}")
             self._display_current_record(index)
 
         # Add buttons
@@ -168,7 +195,7 @@ class MainWindow(tk.Frame):
             padding=0
         )
         start_button.grid(row=2, column=0, sticky="nsew")
-        Grid.columnconfigure(button_widget, 0, weight=1)
+        Misc.grid_columnconfigure(button_widget, 0, weight=1)
 
         # Prev snapshot
         if has_snapshots:
@@ -193,7 +220,7 @@ class MainWindow(tk.Frame):
             )
 
             prev_snap_button.grid(row=2, column=1, sticky="nsew")
-            Grid.columnconfigure(button_widget, 1, weight=1)
+            Misc.grid_columnconfigure(button_widget, 1, weight=1)
 
         # Back
         def back_click():
@@ -209,7 +236,7 @@ class MainWindow(tk.Frame):
             padding=0
         )
         back_button.grid(row=2, column=2, sticky="nsew")
-        Grid.columnconfigure(button_widget, 2, weight=1)
+        Misc.grid_columnconfigure(button_widget, 2, weight=1)
 
         # Next
         def next_click():
@@ -225,7 +252,7 @@ class MainWindow(tk.Frame):
             padding=0
         )
         next_button.grid(row=2, column=3, sticky="nsew")
-        Grid.columnconfigure(button_widget, 3, weight=1)
+        Misc.grid_columnconfigure(button_widget, 3, weight=1)
 
         # Next snapshot
         if has_snapshots:
@@ -249,7 +276,7 @@ class MainWindow(tk.Frame):
                 padding=0
             )
             next_snap_button.grid(row=2, column=4, sticky="nsew")
-            Grid.columnconfigure(button_widget, 4, weight=1)
+            Misc.grid_columnconfigure(button_widget, 4, weight=1)
 
         # Last
         def last_click():
@@ -264,13 +291,13 @@ class MainWindow(tk.Frame):
             padding=0
         )
         last_button.grid(row=2, column=5, sticky="nsew")
-        Grid.columnconfigure(button_widget, 5, weight=1)
+        Misc.grid_columnconfigure(button_widget, 5, weight=1)
 
         button_widget.grid_propagate(True)
 
         button_widget.grid(row=2, column=0, padx=15, pady=(0, 10), sticky="nsew")
 
-    def _display_current_record(self, which):
+    def _display_current_record(self, which: int):
         self._display_record(which, self.cur_pos[which], self.histories[which][1][self.cur_pos[which]])
 
     def _display_record(self, which: int, index: int, record: BitHistoryRecord):
@@ -279,8 +306,9 @@ class MainWindow(tk.Frame):
 
         self.canvases[which].axes.clear()  # Clear the canvas.
 
-        self.f_and_line_number_var.set(f"{index}: {record.name} [{record.filename} line {record.line_number}]")
-        self.error_var.set("" if record.error_message is None else record.error_message)
+        self.top_line_messages[which].set(f"{index}: {record.name} [{record.filename} line {record.line_number}]")
+        self.top_err_messages[which].set("" if record.error_message is None else record.error_message)
+
         draw_record(self.canvases[which].axes, record)
 
         # Trigger the canvas to update and redraw.
