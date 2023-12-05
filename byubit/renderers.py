@@ -299,15 +299,15 @@ class AnimatedRenderer(BitHistoryRenderer):
         """
         Run TKinter application
         """
-        matplotlib.use("TkAgg")
+        try:
+            matplotlib.use("TkAgg")
+            root = tk.Tk()
+            root.title('CS 110 Bit')
 
-        root = tk.Tk()
-        root.title('CS 110 Bit')
+            bit_panel = MainWindow(root, histories, self.verbose)
+            bit_panel.pack()
 
-        bit_panel = MainWindow(root, histories, self.verbose)
-        bit_panel.pack()
-
-        root.protocol('WM_DELETE_WINDOW', root.quit)
-        tk.mainloop()
-
-        return all(history[-1].error_message is None for _, history in histories)
+            root.protocol('WM_DELETE_WINDOW', root.quit)
+            tk.mainloop()
+        finally: 
+            return all(history[-1].error_message is None for _, history in histories)

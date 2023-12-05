@@ -15,9 +15,9 @@ import csv
 # 0,1  1,1, 2,1
 # 0,2  1,2, 2,2
 # dx and dy
-from byubit.core import BitHistoryRecord, BitHistoryRenderer, BitComparisonException, _codes_to_colors, \
-    _colors_to_codes, draw_record, MoveOutOfBoundsException, BLACK, MoveBlockedByBlackException, EMPTY, \
-    _names_to_colors, _colors_to_names, determine_figure_size, BitInfiniteLoopException, ParenthesesException
+from byubit.core import BitHistoryRecord, BitHistoryRenderer, BitComparisonException, _code_to,\
+    CODE, draw_record, MoveOutOfBoundsException, BLACK, MoveBlockedByBlackException, EMPTY, \
+    _names_to_colors, _name_to, _value_to, determine_figure_size, BitInfiniteLoopException, ParenthesesException
 from byubit.renderers import AnimatedRenderer, LastFrameRenderer
 
 _orientations = [
@@ -190,7 +190,13 @@ class Bit:
     @staticmethod
     def parse_string(content: str):
         content = [line.split() for line in content.splitlines() if line]
-        content[:-2] = [list(line[0]) for line in content[:-2]]
+        for i in range(len(content) - 2):
+            line = content[i][j:=0]
+            content[i] = []
+            while j < len(line):
+                content[i].append(line[j:(j:=j+6)+1] if line[j] == '#' else line[j])
+                j+=1
+        # content[:-2] = [list(line[0]) for line in content[:-2]]
         return content
 
     @staticmethod
@@ -231,7 +237,7 @@ class Bit:
         # World lines are all lines up to the second-to-last
         # We transpose because numpy stores our lines as columns,
         # and we want them represented as rows in memory
-        world = np.array([[_codes_to_colors[code] for code in line] for line in content[-3::-1]]).transpose()
+        world = np.array([[_code_to(code) for code in line] for line in content[-3::-1]]).transpose()
 
         return Bit(name, world, pos, orientation)
 
@@ -247,7 +253,7 @@ class Bit:
         """Present the bit information as a string"""
         # We print out each row in reverse order so 0,0 is at the bottom of the text, not the top
         world_str = "\n".join(
-            "".join(_colors_to_codes[self.world[x, self.world.shape[1] - 1 - y]] for x in range(self.world.shape[0]))
+            "".join(_value_to(self.world[x, self.world.shape[1] - 1 - y], CODE) for x in range(self.world.shape[0]))
             for y in range(self.world.shape[1])
         )
         pos_str = f"{self.pos[0]} {self.pos[1]}"
@@ -303,7 +309,6 @@ class Bit:
         fig = plt.figure(figsize=determine_figure_size(record.world.shape))
         ax = fig.add_axes([0.02, 0.05, 0.96, 0.75])
         draw_record(ax, record, bwmode=bwmode)
-
         if message:
             ax.set_title(message)
 
@@ -452,15 +457,56 @@ class Bit:
     @check_extraneous_args
     def paint(self, color):
         """Color the current position with the specified color"""
-        if color not in _names_to_colors:
+        if color[0] == '#' and len(color) == 7:
+            self._paint(_name_to(color))
+        elif color not in _names_to_colors:
             message = f"Unrecognized color: '{color}'. \nTry: 'red', 'green', or 'blue'"
             raise Exception(message)
-        self._paint(_names_to_colors[color])
+        else:
+            self._paint(_name_to(color))
         self._register(f"paint {color}")
+
+
+    # def _image(self, filename):
+    #     import tkinter as tk
+    #     root = tk.Tk()
+    #     try:
+    #         photo = tk.PhotoImage(data=filename)
+    #         while photo.width() > 100 or photo.height() > 100:
+    #             photo = photo.subsample(2, 2)
+    #         height, width = photo.height(), photo.width()
+    #         height_orig, width_orig = self.world.shape[0], self.world.shape[1]
+    #         self.snapshot(f'Begin drawing')
+    #         self.world = np.pad(self.world, ((0, height-height_orig), (0, width-width_orig)), mode='constant', constant_values=EMPTY)
+    #         global MAX_STEP_COUNT
+    #         MAX_STEP_COUNT += height*width*4
+    #         # Iterate through the pixels and print their hex colors
+    #         self.pos = [0, 0]
+    #         self.orientation = 0
+    #         self.left()
+    #         for y in range(height):
+    #             self.snapshot('next row')
+    #             self.right()
+    #             for x in range(width):
+    #                 self.paint("#{:02x}{:02x}{:02x}".format(*photo.get(x, height-y-1)))
+    #                 if self.front_clear():
+    #                     self.move()
+    #             self.snapshot('return')
+    #             self.right()
+    #             self.right()
+    #             for pixel in range(width):
+    #                 if self.front_clear():
+    #                     self.move()
+    #             self.right()
+    #             if not self.front_clear(): break
+    #             self.move()
+    #     finally:
+    #         root.destroy()
+    #         root.quit()
 
     def _get_color(self) -> str:
         """Return the color at the current position"""
-        ret = _colors_to_names[self._get_color_at(self.pos)]
+        ret = _value_to(self._get_color_at(self.pos))
         return ret
 
     @check_for_parentheses

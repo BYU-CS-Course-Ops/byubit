@@ -134,11 +134,41 @@ def determine_figure_size(world_shape, min_size=(5.5, 2), max_size=(12, 6)):
 
     return size
 
+NAME = 0 # string name or hex code input; bit.paint('name')/matplotlib
+VALUE = 1 # value within the np array; bit.world
+CODE = 2 # symbol or hex code; world.txt file
+
+def _value_to(val:int, to=NAME, bwmode = False):
+    color_map = _bw_colors_to_names if bwmode else _colors_to_names
+    if to == VALUE: return val
+    elif val >= len(_names_to_colors):
+        return f"#{(val - len(_names_to_colors)):06x}"
+    elif to == NAME:
+        return color_map[val] or "white"
+    else:
+        return _colors_to_codes[val] or 0
+
+def _code_to(sym:str, to=VALUE, bwmode = False):
+    color_map = _bw_colors_to_names if bwmode else _colors_to_names
+    if to == CODE: return sym
+    elif to == NAME:
+        return sym if sym[0] == '#' else color_map[_codes_to_colors[sym]]
+    else:
+        return _codes_to_colors[sym] if sym[0] != '#' else _hex_to_value(sym)
+
+def _name_to(name:str, to=VALUE):
+    if to == NAME: return name
+    elif to == CODE:
+        return name if name[0] == '#' else _colors_to_codes[_names_to_colors[name]]
+    else:
+        return _names_to_colors[name] if name[0] != '#' else _hex_to_value(name)
+
+def _hex_to_value(hex_str:str) -> int:
+    return int(hex_str[1:], 16) + len(_names_to_colors)
 
 def draw_record(ax, record: BitHistoryRecord, bwmode=False):
     dims = record.world.shape
     ax.set_aspect('equal')
-    color_map = _bw_colors_to_names if bwmode else _colors_to_names
 
     # Draw squares
     for y in range(dims[1]):
@@ -146,11 +176,11 @@ def draw_record(ax, record: BitHistoryRecord, bwmode=False):
             ax.add_patch(plt.Rectangle(
                 (x, y),
                 1, 1,
-                color=color_map[record.world[x, y]] or "white")
+                color= _value_to(record.world[x, y], bwmode=bwmode))
             )
             if bwmode and record.world[x, y] in [RED, GREEN, BLUE]:
                 # Scatter R,G,B symbols on colored patches
-                ax.text(x + 0.1, y + 0.1, _colors_to_codes[record.world[x, y]].upper(),
+                ax.text(x + 0.1, y + 0.1, _value_to[record.world[x, y]].upper(),
                         fontsize=20, fontweight='bold')
 
     # Draw the "bit"
@@ -170,7 +200,7 @@ def draw_record(ax, record: BitHistoryRecord, bwmode=False):
                 if record.world[x, y] != annot_world[x, y]:
                     ax.text(x + 0.6, y + 0.6, "!",
                             fontsize=16, weight='bold',
-                            bbox={'facecolor': color_map[annot_world[x, y]] or "white"})
+                            bbox={'facecolor': _value_to(annot_world[x, y], bwmode=bwmode) or "white"})
         # Compare Bit position and orientation
         if record.pos[0] != annot_pos[0] \
                 or record.pos[1] != annot_pos[1] \
@@ -191,11 +221,11 @@ def draw_record(ax, record: BitHistoryRecord, bwmode=False):
     ax.get_yaxis().set_visible(False)
 
     # Draw Grid
-    grid_style = dict(c='gray', lw=1)
-    for x in range(0, dims[0]):
-        ax.plot((x, x), [0, dims[1]], **grid_style)
-    for y in range(0, dims[1]):
-        ax.plot([0, dims[0]], (y, y), **grid_style)
+    # grid_style = dict(c='gray', lw=1)
+    # for x in range(0, dims[0]):
+    #     ax.plot((x, x), [0, dims[1]], **grid_style)
+    # for y in range(0, dims[1]):
+    #     ax.plot([0, dims[0]], (y, y), **grid_style)
 
 
 
