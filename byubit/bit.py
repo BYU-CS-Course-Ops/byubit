@@ -59,31 +59,31 @@ class NewBit:
 # We'll have 0,0 be the origin
 # The position defines the X,Y coordinates
 class Bit:
-    name: str
-    world: np.array
-    pos: np.array  # x and y
-    orientation: int  # _orientations[orientation] => dx and dy
+    _name: str
+    _world: np.array
+    _pos: np.array  # x and y
+    _orientation: int  # _orientations[orientation] => dx and dy
 
-    history: List[BitHistoryRecord]
+    _history: List[BitHistoryRecord]
 
-    state_history = {}
-    results = None
+    _state_history = {}
+    _results = None
     new_bit = NewBit()
-    paren_error = None
+    _paren_error = None
 
     @staticmethod
-    def pictures(path='', ext='png', title=None, bwmode=False, name=None):
+    def _pictures(path='', ext='png', title=None, bwmode=False, name=None):
         def decorator(function):
             def new_function(bit):
                 # Draw starting conditions
-                filename = name or bit.name
-                bit.draw(path + filename + '.start.' + ext, message=title, bwmode=bwmode)
+                filename = name or bit._name
+                bit._draw(path + filename + '.start.' + ext, message=title, bwmode=bwmode)
 
                 # Run function
                 function(bit)
 
                 # Save ending conditions
-                bit.draw(path + filename + '.finish.' + ext, message=title, bwmode=bwmode)
+                bit._draw(path + filename + '.finish.' + ext, message=title, bwmode=bwmode)
 
             return new_function
 
@@ -91,7 +91,7 @@ class Bit:
 
     @staticmethod
     def empty_world(width, height, name=None, **kwargs):
-        return Bit.worlds(Bit.new_world(width, height, name=name), **kwargs)
+        return Bit.worlds(Bit._new_world(width, height, name=name), **kwargs)
 
     @staticmethod
     def worlds(*bit_worlds, **kwargs):
@@ -117,7 +117,7 @@ class Bit:
         def decorator(bit_func):
             def new_function(bit):
                 if bit is Bit.new_bit:
-                    return Bit.evaluate(bit_func, bits, **kwargs)
+                    return Bit._evaluate(bit_func, bits, **kwargs)
                 else:
                     raise TypeError(f"You must pass Bit.new_bit to your main function.")
 
@@ -126,7 +126,7 @@ class Bit:
         return decorator
 
     @staticmethod
-    def evaluate(
+    def _evaluate(
             bit_function,
             bits,
             save=None,
@@ -139,15 +139,15 @@ class Bit:
         results = []
         for bit1, bit2 in bits:
             if isinstance(bit1, str):
-                bit1 = Bit.load(bit1)
+                bit1 = Bit._load(bit1)
 
             if isinstance(bit2, str):
-                bit2 = Bit.load(bit2)
+                bit2 = Bit._load(bit2)
             try:
                 bit_function(bit1)
 
                 if bit2 is not None:
-                    bit1._compare(bit2)
+                    bit1.__compare(bit2)
 
             except BitInfiniteLoopException as ex:
                 print(ex)
@@ -167,7 +167,7 @@ class Bit:
             except ParenthesesException as ex:
                 print(ex)
                 bit1._register(ex.name, str(ex), ex=ex)
-                bit1.history[-1].line_number = ex.line_number
+                bit1._history[-1].line_number = ex.line_number
 
             except Exception as ex:
                 print(ex)
@@ -175,30 +175,30 @@ class Bit:
 
             finally:
                 if save:
-                    bit1.save(save)
+                    bit1._save(save)
 
-                results.append((bit1.name, bit1.history))
-        Bit.results = results
+                results.append((bit1._name, bit1._history))
+        Bit._results = results
         return renderer.render(results)
 
     @staticmethod
-    def new_world(size_x, size_y, name=None):
+    def _new_world(size_x, size_y, name=None):
         if name is None:
             name = f"New World({size_x}, {size_y})"
         return Bit(name, np.zeros((size_x, size_y)), (0, 0), 0)
 
     @staticmethod
-    def parse_string(content: str):
+    def _parse_string(content: str):
         content = [line.split() for line in content.splitlines() if line]
         content[:-2] = [list(line[0]) for line in content[:-2]]
         return content
 
     @staticmethod
-    def parse_file(filename: str):
+    def _parse_file(filename: str):
         """Parse either csv or txt file into list[list[str]] format. """
         if filename.endswith(".txt"):
             with open(filename, 'r') as file:
-                content = Bit.parse_string(file.read())
+                content = Bit._parse_string(file.read())
         elif filename.endswith(".csv"):
             with open(filename, 'r') as file:
                 reader = csv.reader(file)
@@ -209,15 +209,15 @@ class Bit:
         return content
 
     @staticmethod
-    def load(filename: str):
+    def _load(filename: str):
         """Parse the file into a new Bit"""
-        content = Bit.parse_file(filename)
+        content = Bit._parse_file(filename)
         base, ext = os.path.splitext(filename)
         name = os.path.basename(base)
-        return Bit.parse(name, content)
+        return Bit._parse(name, content)
 
     @staticmethod
-    def parse(name: str, content: list[list[str]]):
+    def _parse(name: str, content: list[list[str]]):
         """Parse the bitmap from nested list."""
         # There must be at least three lines
         assert len(content) >= 3
@@ -236,22 +236,22 @@ class Bit:
         return Bit(name, world, pos, orientation)
 
     def __init__(self, name: str, world: np.array, pos: np.array, orientation: int):
-        self.name = name
-        self.world = world
-        self.pos = np.array(pos)
-        self.orientation = orientation
-        self.history = []
+        self._name = name
+        self._world = world
+        self._pos = np.array(pos)
+        self._orientation = orientation
+        self._history = []
         self._register("initial state")
 
     def __repr__(self) -> str:
         """Present the bit information as a string"""
         # We print out each row in reverse order so 0,0 is at the bottom of the text, not the top
         world_str = "\n".join(
-            "".join(_colors_to_codes[self.world[x, self.world.shape[1] - 1 - y]] for x in range(self.world.shape[0]))
-            for y in range(self.world.shape[1])
+            "".join(_colors_to_codes[self._world[x, self._world.shape[1] - 1 - y]] for x in range(self._world.shape[0]))
+            for y in range(self._world.shape[1])
         )
-        pos_str = f"{self.pos[0]} {self.pos[1]}"
-        orientation = self.orientation
+        pos_str = f"{self._pos[0]} {self._pos[1]}"
+        orientation = self._orientation
         return f"{world_str}\n{pos_str}\n{orientation}\n"
 
     def _get_caller_info(self, ex=None) -> Tuple[str, int]:
@@ -268,36 +268,36 @@ class Bit:
     def _record(self, name, message=None, annotations=None, ex=None, line=None):
         filename, line_number = self._get_caller_info(ex=ex)
         return BitHistoryRecord(
-            name, message, self.world.copy(), self.pos, self.orientation,
+            name, message, self._world.copy(), self._pos, self._orientation,
             deepcopy(annotations) if annotations is not None else None,
             filename, line_number
         )
 
     def _register(self, name, message=None, annotations=None, ex=None):
-        self.history.append(self._record(name, message, annotations, ex))
+        self._history.append(self._record(name, message, annotations, ex))
 
-        world_tuple = tuple(tuple(self.world[x, y] for x in range(self.world.shape[0]))
-                            for y in range(self.world.shape[1]))
+        world_tuple = tuple(tuple(self._world[x, y] for x in range(self._world.shape[0]))
+                            for y in range(self._world.shape[1]))
 
-        bit_state = (name, world_tuple, tuple(self.pos), self.orientation)
+        bit_state = (name, world_tuple, tuple(self._pos), self._orientation)
 
-        self.state_history[bit_state] = self.state_history.get(bit_state, 0) + 1
+        self._state_history[bit_state] = self._state_history.get(bit_state, 0) + 1
 
-        if message is None and self.state_history[bit_state] >= 5:
+        if message is None and self._state_history[bit_state] >= 5:
             message = "Bit's been doing the same thing for a while. Is he stuck in an infinite loop?"
             raise BitInfiniteLoopException(message, annotations)
 
-        elif message is None and len(self.history) > MAX_STEP_COUNT:
+        elif message is None and len(self._history) > MAX_STEP_COUNT:
             message = "Bit has done too many things. Is he stuck in an infinite loop?"
             raise BitInfiniteLoopException(message, annotations)
 
-    def save(self, filename: str):
+    def _save(self, filename: str):
         """Save your bit world to a text file"""
         with open(filename, 'wt') as f:
             f.write(repr(self))
         print(f"Bit saved to {filename}")
 
-    def draw(self, filename=None, message=None, annotations=None, bwmode=False):
+    def _draw(self, filename=None, message=None, annotations=None, bwmode=False):
         """Display the current state of the world"""
         record = self._record("", annotations=annotations)
         fig = plt.figure(figsize=determine_figure_size(record.world.shape))
@@ -314,13 +314,13 @@ class Bit:
             plt.show()
 
     def _next_orientation(self, direction: Literal[1, 0, -1]) -> np.array:
-        return (len(_orientations) + self.orientation + direction) % len(_orientations)
+        return (len(_orientations) + self._orientation + direction) % len(_orientations)
 
     def _get_next_pos(self, turn: Literal[1, 0, -1] = 0) -> np.array:
-        return self.pos + _orientations[self._next_orientation(turn)]
+        return self._pos + _orientations[self._next_orientation(turn)]
 
     def _pos_in_bounds(self, pos) -> bool:
-        return np.logical_and(pos >= 0, pos < self.world.shape).all()
+        return np.logical_and(pos >= 0, pos < self._world.shape).all()
 
     def __getattr__(self, usr_attr):
         """Checks if a non-existent method or property is accessed, and gives a suggestion"""
@@ -341,7 +341,7 @@ class Bit:
         message += f"Did you mean bit.{min_diff[1]}?"
         raise Exception(message)
 
-    def check_extraneous_args(func):
+    def _check_extraneous_args(func):
         @functools.wraps(func)
         def new_func(self, *args):
             # Get argument names for the given function
@@ -355,27 +355,27 @@ class Bit:
             return func(self, *args)
         return new_func
 
-    def check_for_parentheses(func):
+    def _check_for_parentheses(func):
         @functools.wraps(func)
         def new_func(self):
             filename, line_number = self._get_caller_info()
-            if self.paren_error:
-                raise self.paren_error
+            if self._paren_error:
+                raise self._paren_error
             else:
                 ex = f"Error: bit.{func.__name__} requires parentheses to be used."
-                self.paren_error = ParenthesesException(ex, func.__name__, line_number)
+                self._paren_error = ParenthesesException(ex, func.__name__, line_number)
             bit_self = self
 
 
             class ForceParentheses:
                 def __call__(self, *args):
-                    bit_self.paren_error = None
+                    bit_self._paren_error = None
                     return func(bit_self, *args)
             return ForceParentheses()
         return property(new_func)
 
-    @check_for_parentheses
-    @check_extraneous_args
+    @_check_for_parentheses
+    @_check_extraneous_args
     def move(self):
         """If the direction is clear, move that way"""
         next_pos = self._get_next_pos()
@@ -388,31 +388,31 @@ class Bit:
             raise MoveBlockedByBlackException(message)
 
         else:
-            self.pos = next_pos
+            self._pos = next_pos
             self._register("move")
 
-    @check_for_parentheses
-    @check_extraneous_args
+    @_check_for_parentheses
+    @_check_extraneous_args
     def left(self):
         """Turn the bit to the left"""
-        self.orientation = self._next_orientation(1)
+        self._orientation = self._next_orientation(1)
         self._register("left")
 
-    @check_for_parentheses
-    @check_extraneous_args
+    @_check_for_parentheses
+    @_check_extraneous_args
     def right(self):
         """Turn the bit to the right"""
-        self.orientation = self._next_orientation(-1)
+        self._orientation = self._next_orientation(-1)
         self._register("right")
 
     def _get_color_at(self, pos):
-        return self.world[pos[0], pos[1]]
+        return self._world[pos[0], pos[1]]
 
     def _space_is_clear(self, pos):
         return self._pos_in_bounds(pos) and self._get_color_at(pos) != BLACK
 
-    @check_for_parentheses
-    @check_extraneous_args
+    @_check_for_parentheses
+    @_check_extraneous_args
     def front_clear(self) -> bool:
         """Can a move to the front succeed?
 
@@ -424,32 +424,32 @@ class Bit:
         self._register(f"front_clear: {ret}")
         return ret
 
-    @check_for_parentheses
-    @check_extraneous_args
+    @_check_for_parentheses
+    @_check_extraneous_args
     def left_clear(self) -> bool:
         ret = self._space_is_clear(self._get_next_pos(1))
         self._register(f"left_clear: {ret}")
         return ret
 
-    @check_for_parentheses
-    @check_extraneous_args
+    @_check_for_parentheses
+    @_check_extraneous_args
     def right_clear(self) -> bool:
         ret = self._space_is_clear(self._get_next_pos(-1))
         self._register(f"right_clear: {ret}")
         return ret
 
     def _paint(self, color: int):
-        self.world[self.pos[0], self.pos[1]] = color
+        self._world[self._pos[0], self._pos[1]] = color
 
-    @check_for_parentheses
-    @check_extraneous_args
+    @_check_for_parentheses
+    @_check_extraneous_args
     def erase(self):
         """Clear the current position"""
         self._paint(EMPTY)
         self._register("erase")
 
-    @check_for_parentheses
-    @check_extraneous_args
+    @_check_for_parentheses
+    @_check_extraneous_args
     def paint(self, color):
         """Color the current position with the specified color"""
         if color not in _names_to_colors:
@@ -460,77 +460,77 @@ class Bit:
 
     def _get_color(self) -> str:
         """Return the color at the current position"""
-        ret = _colors_to_names[self._get_color_at(self.pos)]
+        ret = _colors_to_names[self._get_color_at(self._pos)]
         return ret
 
-    @check_for_parentheses
-    @check_extraneous_args
+    @_check_for_parentheses
+    @_check_extraneous_args
     def get_color(self) -> str:
         """Return the color at the current position"""
         ret = self._get_color()
         self._register(f"get_color: {ret}")
         return ret
 
-    @check_for_parentheses
-    @check_extraneous_args
+    @_check_for_parentheses
+    @_check_extraneous_args
     def is_blue(self):
         ret = self._get_color() == 'blue'
         self._register(f"is_blue: {ret}")
         return ret
 
-    @check_for_parentheses
-    @check_extraneous_args
+    @_check_for_parentheses
+    @_check_extraneous_args
     def is_green(self):
         ret = self._get_color() == 'green'
         self._register(f"is_green: {ret}")
         return ret
 
-    @check_for_parentheses
-    @check_extraneous_args
+    @_check_for_parentheses
+    @_check_extraneous_args
     def is_red(self):
         ret = self._get_color() == 'red'
         self._register(f"is_red: {ret}")
         return ret
 
-    @check_for_parentheses
-    @check_extraneous_args
+    @_check_for_parentheses
+    @_check_extraneous_args
     def is_empty(self):
         ret = self._get_color() is None
         self._register(f"is_empty: {ret}")
         return ret
 
-    def _compare(self, other: 'Bit'):
+    def __compare(self, other: 'Bit'):
         """Compare this bit to another"""
-        if not self.world.shape == other.world.shape:
+        if not self._world.shape == other._world.shape:
             raise Exception(
-                f"Cannot compare Bit worlds of different dimensions: {tuple(self.pos)} vs {tuple(other.pos)}")
+                f"Cannot compare Bit worlds of different dimensions: {tuple(self._pos)} vs {tuple(other._pos)}")
 
-        if not np.array_equal(self.world, other.world):
+        if not np.array_equal(self._world, other._world):
             raise BitComparisonException(f"Bit world does not match expected world",
-                                         (other.world, other.pos, other.orientation))
+                                         (other._world, other._pos, other._orientation))
 
-        if self.pos[0] != other.pos[0] or self.pos[1] != other.pos[1]:
+        if self._pos[0] != other._pos[0] or self._pos[1] != other._pos[1]:
             raise BitComparisonException(
-                f"Location of Bit does not match: {tuple(self.pos)} vs {tuple(other.pos)}",
-                (other.world, other.pos, other.orientation)
+                f"Location of Bit does not match: {tuple(self._pos)} vs {tuple(other._pos)}",
+                (other._world, other._pos, other._orientation)
             )
 
         self._register("compare correct!")
 
-    def compare(self, other: 'Bit'):
+    def _compare(self, other: 'Bit'):
         try:
-            self._compare(other)
+            self.__compare(other)
             return True
 
         except BitComparisonException as ex:
-            self.draw(message=str(ex), annotations=ex.annotations)
+            self._draw(message=str(ex), annotations=ex.annotations)
 
         finally:
-            self.draw()
+            self._draw()
 
         return False
 
-    @check_for_parentheses
-    @check_extraneous_args
+    @_check_for_parentheses
+    @_check_extraneous_args
     def snapshot(self, title: str):
         self._register("snapshot: " + title)

@@ -28,7 +28,7 @@ def back(bit):
 
 
 @Bit.empty_world(12,12)
-@Bit.pictures('demo-images/', ext='svg')
+@Bit._pictures('demo-images/', ext='svg')
 def main(bit):
     count = 0
     while bit.front_clear() and bit.left_clear():

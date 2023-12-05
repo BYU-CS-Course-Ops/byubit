@@ -3,7 +3,7 @@ from byubit.core import css_colors
 
 
 @Bit.worlds('test-world1', 'test-world2')
-@Bit.pictures('demo-images/', ext='svg')
+@Bit._pictures('demo-images/', ext='svg')
 def demo(bit):
     bit.move()
     bit.left()
