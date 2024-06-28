@@ -446,13 +446,6 @@ class Bit:
 
     @check_for_parentheses
     @check_extraneous_args
-    def erase(self):
-        """Clear the current position"""
-        self._paint(EMPTY)
-        self._register("erase")
-
-    @check_for_parentheses
-    @check_extraneous_args
     def paint(self, color):
         """Color the current position with the specified color"""
         if color not in _names_to_colors:
@@ -497,9 +490,9 @@ class Bit:
 
     @check_for_parentheses
     @check_extraneous_args
-    def is_empty(self):
-        ret = self._get_color() is None
-        self._register(f"is_empty: {ret}")
+    def is_white(self):
+        ret = self._get_color() == 'white'
+        self._register(f"is_white: {ret}")
         return ret
 
     def _compare(self, other: 'Bit'):
