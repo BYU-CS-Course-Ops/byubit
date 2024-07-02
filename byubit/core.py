@@ -9,7 +9,7 @@ import webcolors
 
 SCALE = 0.5
 
-EMPTY = 0
+WHITE = 0
 BLACK = 1
 ORANGE = 2
 GREEN = 4
@@ -20,7 +20,7 @@ PURPLE = 8
 
 
 _names_to_colors = {
-    None: EMPTY,
+    'white': WHITE,
     'black': BLACK,
     'orange': ORANGE,
     'green': GREEN,
@@ -46,7 +46,7 @@ _bw_colors_to_names = {
 DARKBIT = '#005555'
 
 _codes_to_colors = {
-    "-": EMPTY,
+    "-": WHITE,
     "k": BLACK,
     'o': ORANGE,
     'g': GREEN,
@@ -147,7 +147,7 @@ def draw_record(ax, record: BitHistoryRecord, bwmode=False):
             ax.add_patch(plt.Rectangle(
                 (x, y),
                 1, 1,
-                color=color_map[record.world[x, y]] or "white")
+                color=color_map[record.world[x, y]])
             )
             if bwmode and record.world[x, y] in [RED, GREEN, BLUE]:
                 # Scatter R,G,B symbols on colored patches
@@ -171,7 +171,7 @@ def draw_record(ax, record: BitHistoryRecord, bwmode=False):
                 if record.world[x, y] != annot_world[x, y]:
                     ax.text(x + 0.6, y + 0.6, "!",
                             fontsize=16, weight='bold',
-                            bbox={'facecolor': color_map[annot_world[x, y]] or "white"})
+                            bbox={'facecolor': color_map[annot_world[x, y]]})
         # Compare Bit position and orientation
         if record.pos[0] != annot_pos[0] \
                 or record.pos[1] != annot_pos[1] \
