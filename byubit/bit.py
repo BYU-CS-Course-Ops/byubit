@@ -16,7 +16,7 @@ import csv
 # 0,2  1,2, 2,2
 # dx and dy
 from byubit.core import BitHistoryRecord, BitHistoryRenderer, BitComparisonException, _codes_to_colors, \
-    _colors_to_codes, draw_record, MoveOutOfBoundsException, BLACK, MoveBlockedByBlackException, WHITE, \
+    _colors_to_codes, draw_record, MoveOutOfBoundsException, BLACK, MoveBlockedByBlackException, \
     _names_to_colors, _colors_to_names, determine_figure_size, BitInfiniteLoopException, ParenthesesException
 from byubit.renderers import AnimatedRenderer, LastFrameRenderer
 

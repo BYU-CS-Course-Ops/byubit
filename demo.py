@@ -8,5 +8,6 @@ def demo(bit):
     while bit.front_clear():
         bit.move()
 
+
 if __name__ == '__main__':
     demo(Bit.new_bit)
