@@ -516,7 +516,7 @@ class Bit:
     @check_for_parentheses
     @check_extraneous_args
     def is_on_white(self):
-        ret = self._get_color() is None
+        ret = self._get_color() == 'white'
         self._register(f"is_empty: {ret}")
         return ret
 
