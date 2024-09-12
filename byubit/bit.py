@@ -532,7 +532,7 @@ class Bit:
     @check_for_parentheses
     @check_extraneous_args
     @registered
-    def get_color(self) -> str:
+    def _get_color(self) -> str:
         """Return the color at the current position"""
         return _colors_to_names[self._get_color_at(self.pos)]
 
