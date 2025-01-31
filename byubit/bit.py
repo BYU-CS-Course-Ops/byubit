@@ -347,7 +347,7 @@ class Bit:
 
         self.state_history[bit_state] = self.state_history.get(bit_state, 0) + 1
 
-        if message is None and self.state_history[bit_state] >= 5:
+        if message is None and self.state_history[bit_state] >= 10:
             message = "Bit's been doing the same thing for a while. Is he stuck in an infinite loop?"
             raise BitInfiniteLoopException(message, annotations)
 
