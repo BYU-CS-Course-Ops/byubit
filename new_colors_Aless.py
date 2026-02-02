@@ -5,6 +5,16 @@ from byubit import Bit
 def main(bit):
     bit.paint("green")
 
+    bit.move()
+    bit.move()
+
+    bit.paint('blue')
+
+    bit.move()
+    bit.move()
+
+    bit.paint('red')
+
 
 if __name__ == '__main__':
     main(Bit.new_bit)

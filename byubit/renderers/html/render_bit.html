@@ -261,6 +261,18 @@
     let currentTab = null;
     let currentIndex = {};
 
+
+    // Wrote by Alessandro
+    const COLOR_MAP = {
+        red: "#C0392B",
+        green: "#009E73",
+        blue: "#0072B2",
+        white: "white",
+        black: "black",
+};
+
+
+
     function hasError(history) {
         return history[history.length - 1].error_message != null;
     }
@@ -475,7 +487,11 @@
                 cell.className = 'cell';
                 cell.style.width = `${cellWidth}px`;
                 cell.style.height = `${cellHeight}px`;
-                cell.style.backgroundColor = cellColor;
+
+                // Modified to make it color-blind friendly
+                cell.style.backgroundColor = COLOR_MAP[cellColor] ?? cellColor;
+
+
                 if (row === pos[0] && col === pos[1]) {
                     const triangle = document.createElement('div');
                     triangle.className = 'triangle';
@@ -507,7 +523,7 @@
                     const annotation = record.annotations[0][row][col];
                     const acell = document.createElement('div');
                     acell.textContent = '!';
-                    acell.style.backgroundColor = annotation;
+                    acell.style.backgroundColor = COLOR_MAP[annotation] ?? annotation;
                     if (annotation === "white") {
                         acell.style.color = "black";
                     }
