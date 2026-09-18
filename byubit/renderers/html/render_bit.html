@@ -139,10 +139,40 @@
             position: relative;
         }
 
+        body.accessible-theme .cell-red {
+            background-image: repeating-linear-gradient(
+                135deg,
+                transparent 0 6px,
+                rgba(0, 0, 0, 0.65) 6px 8px
+            );
+        }
+
+        body.accessible-theme .cell-green {
+            background-image: radial-gradient(
+                rgba(0, 0, 0, 0.7) 1.5px,
+                transparent 1.5px
+            );
+            background-size: 8px 8px;
+        }
+
+        body.accessible-theme .cell-blue {
+            background-image:
+                repeating-linear-gradient(
+                    45deg,
+                    transparent 0 6px,
+                    rgba(255, 255, 255, 0.7) 6px 8px
+                ),
+                repeating-linear-gradient(
+                    -45deg,
+                    transparent 0 6px,
+                    rgba(255, 255, 255, 0.7) 6px 8px
+                );
+        }
+
         .triangle {
             width: 20px;
             height: 40px;
-            background: black;
+            background: var(--triangle-fill, cyan);
             clip-path: polygon(50% 0, 100% 100%, 0 100%);
             position: absolute;
             top: 5px;
@@ -151,10 +181,20 @@
 
         .triangle::after {
             content: "";
+            display: none;
             position: absolute;
-            inset: 2px;
+            inset: var(--triangle-outline);
             background: var(--triangle-fill, cyan);
             clip-path: polygon(50% 0, 100% 100%, 0 100%);
+        }
+
+        body.accessible-theme .triangle {
+            --triangle-outline: 6px;
+            background: black;
+        }
+
+        body.accessible-theme .triangle::after {
+            display: block;
         }
 
         .triangle.right {
@@ -174,7 +214,7 @@
         }
 
         .triangle.wrong {
-            border-bottom: 20px solid #8bbab5;
+            --triangle-fill: #8bbab5;
         }
 
         .annotation {
@@ -215,6 +255,15 @@
 
         #button-container button:hover {
             background-color: #0056b3;
+        }
+
+        #button-container #visibility-button {
+            background-color: #d3d3d3;
+            color: #000;
+        }
+
+        #button-container #visibility-button:hover {
+            background-color: #b8b8b8;
         }
 
         #tabs button {
@@ -267,6 +316,29 @@
 <script>
     let currentTab = null;
     let currentIndex = {};
+    let accessibleTheme = false;
+
+    try {
+        accessibleTheme = localStorage.getItem('byubit-accessible-theme') === 'true';
+    } catch (error) {
+        // Ignore storage restrictions; the toggle still works for this page.
+    }
+
+    function setAccessibleTheme(enabled) {
+        accessibleTheme = enabled;
+        document.body.classList.toggle('accessible-theme', enabled);
+
+        const visibilityButton = document.getElementById('visibility-button');
+        if (visibilityButton) {
+            visibilityButton.setAttribute('aria-pressed', String(enabled));
+        }
+
+        try {
+            localStorage.setItem('byubit-accessible-theme', String(enabled));
+        } catch (error) {
+            // Ignore storage restrictions; the setting remains active in memory.
+        }
+    }
 
     function hasError(history) {
         return history[history.length - 1].error_message != null;
@@ -337,6 +409,12 @@
             renderWorld();
         };
 
+        const visibilityButton = document.createElement('button');
+        visibilityButton.id = 'visibility-button';
+        visibilityButton.innerText = 'Visibility';
+        visibilityButton.classList.add('button');
+        visibilityButton.setAttribute('aria-pressed', String(accessibleTheme));
+        visibilityButton.onclick = () => setAccessibleTheme(!accessibleTheme);
 
         let prevSnapButton = null;
         let nextSnapButton = null;
@@ -422,6 +500,8 @@
             buttonContainer.appendChild(nextSnapButton);
         }
         buttonContainer.appendChild(lastButton);
+        buttonContainer.appendChild(visibilityButton);
+        setAccessibleTheme(accessibleTheme);
     }
 
     function switchTab(tab) {
@@ -473,6 +553,7 @@
         worldContainer.innerHTML = '';
         const grid = document.createElement('div');
         grid.className = 'grid';
+        grid.setAttribute('role', 'grid');
         grid.style.gridTemplateColumns = `repeat(${cols}, ${cellWidth}px)`;
         grid.style.gridTemplateRows = `repeat(${rows}, ${cellHeight}px)`;
         for (let row = rows - 1; row >= 0; row--) {
@@ -480,12 +561,21 @@
                 const cellColor = worldData[row][col];
                 const cell = document.createElement('div');
                 cell.className = 'cell';
+                cell.setAttribute('role', 'gridcell');
+                cell.title = cellColor;
+                cell.setAttribute('aria-label', cellColor);
                 cell.style.width = `${cellWidth}px`;
                 cell.style.height = `${cellHeight}px`;
                 cell.style.backgroundColor = cellColor;
+                if (cellColor === 'red' || cellColor === 'green' || cellColor === 'blue') {
+                    cell.classList.add(`cell-${cellColor}`);
+                }
                 if (row === pos[0] && col === pos[1]) {
                     const triangle = document.createElement('div');
                     triangle.className = 'triangle';
+                    triangle.setAttribute('role', 'img');
+                    triangle.setAttribute('aria-label', 'Bit');
+                    triangle.title = 'Bit';
                     triangle.style.width = `${triangleSize * 2}px`;
                     triangle.style.height = `${triangleSize * 2}px`;
                     triangle.style.top = `${(cellHeight - triangleSize * 2) / 2}px`;
