@@ -52,6 +52,15 @@ WHITE = 'white'  # for empty squares
 css_colors = set(webcolors._definitions._CSS3_NAMES_TO_HEX.keys())
 
 
+def _decode_color(code: str) -> str:
+    """Convert a compact world code or CSS color name to a color."""
+    if code in _codes_to_colors:
+        return _codes_to_colors[code]
+    if code in css_colors:
+        return code
+    raise KeyError(code)
+
+
 class MoveOutOfBoundsException(Exception):
     """Raised when Bit tries to move out of bounds"""
 
@@ -198,7 +207,7 @@ def _parse_bit_from_lines(name: str, content: list[list[str]]):
 
     # World lines are all lines up to the second-to-last
     world = [
-        [_codes_to_colors[code] for code in row]
+        [_decode_color(code) for code in row]
         for row in content[:-2][::-1]
     ]
 

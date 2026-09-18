@@ -15,6 +15,8 @@ def demo(bit: Bit):
     bit.turn_right()
     bit.turn_right()
     bit.turn_right()
+
+    go_paint(bit, 'red')
     bit.turn_right()
 
 
