@@ -140,14 +140,21 @@
         }
 
         .triangle {
-            width: 0;
-            height: 0;
-            border-left: 10px solid transparent;
-            border-right: 10px solid transparent;
-            border-bottom: 20px solid cyan;
+            width: 20px;
+            height: 40px;
+            background: black;
+            clip-path: polygon(50% 0, 100% 100%, 0 100%);
             position: absolute;
-            top: 15px;
-            left: 15px;
+            top: 5px;
+            left: 5px;
+        }
+
+        .triangle::after {
+            content: "";
+            position: absolute;
+            inset: 2px;
+            background: var(--triangle-fill, cyan);
+            clip-path: polygon(50% 0, 100% 100%, 0 100%);
         }
 
         .triangle.right {
@@ -479,9 +486,8 @@
                 if (row === pos[0] && col === pos[1]) {
                     const triangle = document.createElement('div');
                     triangle.className = 'triangle';
-                    triangle.style.borderLeft = `${triangleSize}px solid transparent`;
-                    triangle.style.borderRight = `${triangleSize}px solid transparent`;
-                    triangle.style.borderBottom = `${triangleSize * 2}px solid cyan`;
+                    triangle.style.width = `${triangleSize * 2}px`;
+                    triangle.style.height = `${triangleSize * 2}px`;
                     triangle.style.top = `${(cellHeight - triangleSize * 2) / 2}px`;
                     triangle.style.left = `${(cellWidth - triangleSize * 2) / 2}px`;
                     switch (orientation) {
@@ -527,9 +533,9 @@
                 ) {
                     const triangle = document.createElement('div');
                     triangle.className = 'triangle';
-                    triangle.style.borderLeft = `${triangleSize}px solid transparent`;
-                    triangle.style.borderRight = `${triangleSize}px solid transparent`;
-                    triangle.style.borderBottom = `${triangleSize * 2}px solid #8bbab5`;
+                    triangle.style.width = `${triangleSize * 2}px`;
+                    triangle.style.height = `${triangleSize * 2}px`;
+                    triangle.style.setProperty('--triangle-fill', '#8bbab5');
                     triangle.style.top = `${(cellHeight - triangleSize * 2) / 2}px`;
                     triangle.style.left = `${(cellWidth - triangleSize * 2) / 2}px`;
                     switch (orientation) {
