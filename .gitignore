@@ -4,3 +4,5 @@
 dev/dist/
 dev/build/
 *.egg-info
+# Generated demo HTML
+demos/demo*.html
