@@ -1,6 +1,6 @@
 /.idea/
 /dist/
-/poetry.lock
+.venv/
 dev/dist/
 dev/build/
 *.egg-info
