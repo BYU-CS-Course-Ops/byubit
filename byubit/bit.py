@@ -3,15 +3,16 @@ import functools
 import os
 import re
 import traceback
-from copy import deepcopy
 from inspect import stack, getfile
 from pathlib import Path
 from typing import Literal
 
 import webcolors
 
+from tracecode import RecordingLimitExceeded, TraceRecorder
+
 from .renderers.html_renderer import HTMLRenderer
-from .rendering import BitRenderer, BitHistoryRecord, Pos
+from .rendering import BitRenderer, Pos
 
 
 class NewBit:
@@ -100,6 +101,9 @@ def _registered(func):
         self._register(title)
         return ret
 
+    new_func.__code__ = new_func.__code__.replace(
+        co_name=func.__name__, co_qualname=f"Bit.{func.__name__}"
+    )
     return new_func
 
 
@@ -126,7 +130,80 @@ def _check_extraneous_args(func):
             else:
                 raise
 
+    new_func.__code__ = new_func.__code__.replace(
+        co_name=func.__name__, co_qualname=f"Bit.{func.__name__}"
+    )
     return new_func
+
+
+def _serialize_annotations(annotations):
+    if annotations is None:
+        return None
+    world, pos, orientation = annotations
+    return {
+        "world": [[str(cell) for cell in row] for row in world],
+        "pos": [int(value) for value in pos],
+        "orientation": int(orientation),
+    }
+
+
+def _serialize_bit(bit):
+    return {
+        "name": str(bit.name),
+        "world": [[str(cell) for cell in row] for row in bit.world],
+        "pos": [int(value) for value in bit.pos],
+        "orientation": int(bit.orientation),
+    }
+
+
+def _decode_trace_value(value):
+    if not isinstance(value, dict) or "type" not in value or "data" not in value:
+        return value
+    value_type, data = value["type"], value["data"]
+    if value_type == "dict":
+        return {
+            _decode_trace_value(key): _decode_trace_value(item)
+            for key, item in data
+        }
+    if value_type in ("list", "tuple"):
+        return [_decode_trace_value(item) for item in data]
+    return data
+
+
+def _find_bit_state(snapshot):
+    scopes = [snapshot.get("locals", {})]
+    scopes.extend(caller.get("locals", {}) for caller in reversed(snapshot.get("callers", [])))
+    for scope in scopes:
+        value = scope.get("bit")
+        if isinstance(value, dict) and value.get("type") == "byubit.bit.Bit":
+            return _decode_trace_value(value["data"])
+    return None
+
+
+def _compact_bit_values(value, world_name):
+    if isinstance(value, dict):
+        if value.get("type") == "byubit.bit.Bit":
+            return {
+                "type": "Bit",
+                "data": f'Bit("{world_name}")',
+                "display": True,
+            }
+        return {key: _compact_bit_values(item, world_name) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_compact_bit_values(item, world_name) for item in value]
+    return value
+
+
+def _add_bit_states(recording, initial_state):
+    current = initial_state
+    for snapshot in recording:
+        current = _find_bit_state(snapshot) or current
+        snapshot["bit"] = current
+        world_name = current["name"]
+        for key, value in list(snapshot.items()):
+            if key != "bit":
+                snapshot[key] = _compact_bit_values(value, world_name)
+    return current
 
 
 def _evaluate_all(
@@ -135,7 +212,7 @@ def _evaluate_all(
         *args,
         save=None,
         **kwargs
-) -> dict[str, list[BitHistoryRecord]]:
+) -> dict[str, list[dict]]:
     results = {}
     for start_bit, end_bit in bits:
         if isinstance(start_bit, str):
@@ -285,36 +362,19 @@ class Bit:
         self.n_cols = len(world[0])
 
         self.state_counts = {}  # for infinite loop detection
-        self.history = []
-        self._register("initial state")
-
-    def _record(self, name, message=None, annotations=None, ex=None):
-        filename, line_number = _get_caller_info(ex=ex)
-        return BitHistoryRecord(
-            name=name,
-            error_message=message,
-            world=deepcopy(self.world),
-            pos=deepcopy(self.pos),
-            orientation=self.orientation,
-            annotations=deepcopy(annotations) if annotations is not None else None,
-            filename=os.path.basename(filename),
-            line_number=line_number
-        )
+        self.operation_count = 0
 
     def _register(self, name, message=None, annotations=None, ex=None):
-        self.history.append(self._record(name, message, annotations, ex))
-
+        self.operation_count += 1
         world_tuple = tuple(tuple(row) for row in self.world)
-
-        bit_state = (name, world_tuple, self.pos, self.orientation)
-
+        pos_tuple = tuple(int(value) for value in self.pos)
+        bit_state = (name, world_tuple, pos_tuple, int(self.orientation))
         self.state_counts[bit_state] = self.state_counts.get(bit_state, 0) + 1
 
         if message is None and self.state_counts[bit_state] >= MAX_REPEAT_STATE:
             message = "Bit's been doing the same thing for a while. Is he stuck in an infinite loop?"
             raise BitInfiniteLoopException(message, annotations)
-
-        elif message is None and len(self.history) > MAX_STEP_COUNT:
+        elif message is None and self.operation_count > MAX_STEP_COUNT:
             message = "Bit has done too many things. Is he stuck in an infinite loop?"
             raise BitInfiniteLoopException(message, annotations)
 
@@ -353,44 +413,45 @@ class Bit:
 
         self._register("compare correct!")
 
-    def _evaluate(
-            self,
-            bit_function,
-            other_bit,
-            *args,
-            save=None,
-            **kwargs
-    ) -> tuple[str, list[BitHistoryRecord]]:
+    def _evaluate(self, bit_function, other_bit, *args, save=None, **kwargs):
+        filename = getattr(getattr(bit_function, "__code__", None), "co_filename", None)
+        if filename is None:
+            filename = getfile(bit_function)
+        recorder = TraceRecorder(
+            serializers=[(Bit, _serialize_bit)],
+            target_file=filename,
+            max_snapshots=100_000,
+        )
+        initial_state = _serialize_bit(self)
+        outcome = {"status": "success", "message": None, "annotations": None}
         try:
-            bit_function(self, *args, **kwargs)
-
+            with recorder:
+                bit_function(self, *args, **kwargs)
             if other_bit is not None:
                 self._compare(other_bit)
-
+        except RecordingLimitExceeded as ex:
+            outcome = {"status": "error", "message": f"Execution recording limit exceeded: {ex}", "annotations": None}
         except BitInfiniteLoopException as ex:
             print(ex)
-            self._register("infinite loop 😵", str(ex), ex.annotations)
-
+            outcome = {"status": "error", "message": str(ex), "annotations": _serialize_annotations(ex.annotations)}
         except BitComparisonException as ex:
-            self._register("comparison error", str(ex), ex.annotations)
-
+            outcome = {"status": "error", "message": str(ex), "annotations": _serialize_annotations(ex.annotations)}
         except MoveOutOfBoundsException as ex:
             print(ex)
-            self._register("move out of bounds", str(ex), ex=ex)
-
+            outcome = {"status": "error", "message": str(ex), "annotations": None}
         except MoveBlockedByBlackException as ex:
             print(ex)
-            self._register("move blocked", str(ex), ex=ex)
-
+            outcome = {"status": "error", "message": str(ex), "annotations": None}
         except Exception as ex:
             print(ex)
-            self._register("error", str(ex), ex=ex)
-
+            outcome = {"status": "error", "message": str(ex), "annotations": None}
         finally:
             if save:
                 self.save(save)
 
-        return self.name, self.history
+        _add_bit_states(recorder.recording, initial_state)
+        recorder.recording.append({"event": "bit_outcome", "bit": _serialize_bit(self), "outcome": outcome})
+        return self.name, recorder.recording
 
     def __getattr__(self, usr_attr):
         """Checks if a non-existent method or property is accessed, and gives a suggestion"""

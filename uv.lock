@@ -16,6 +16,7 @@ name = "byubit"
 version = "0.8.4"
 source = { editable = "." }
 dependencies = [
+    { name = "tracecode" },
     { name = "webcolors" },
 ]
 
@@ -28,7 +29,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "webcolors", specifier = ">=24.8.0" }]
+requires-dist = [
+    { name = "tracecode", editable = "../tracecode" },
+    { name = "webcolors", specifier = ">=24.8.0" },
+]
 
 [package.metadata.requires-dev]
 dev = [
@@ -495,6 +499,20 @@ wheels = [
 name = "rosters"
 version = "0.0.0"
 source = { editable = "../rosters" }
+
+[[package]]
+name = "tracecode"
+version = "0.1.2"
+source = { editable = "../tracecode" }
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "myteam", specifier = ">=0.3.21" },
+    { name = "pytest", specifier = ">=9.2.0" },
+    { name = "rosters", editable = "../rosters" },
+]
 
 [[package]]
 name = "typing-extensions"

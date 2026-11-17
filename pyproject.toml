@@ -9,7 +9,7 @@ description = "A library for teaching beginners how to program"
 authors = [{ name = "Gordon Bean", email = "gbean@cs.byu.edu" }]
 license = "MIT"
 requires-python = ">=3.12"
-dependencies = ["webcolors>=24.8.0"]
+dependencies = ["tracecode>=0.1.2", "webcolors>=24.8.0"]
 
 [dependency-groups]
 dev = [
@@ -24,3 +24,4 @@ packages = ["byubit"]
 
 [tool.uv.sources]
 rosters = { path = "../rosters", editable = true }
+tracecode = { path = "../tracecode", editable = true }
