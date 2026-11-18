@@ -31,18 +31,31 @@ def test_evaluation_records_full_trace_and_bit_state(tmp_path):
     assert any(item.get("console") for item in recording)
     bit_local = next(item["locals"]["bit"] for item in recording if "bit" in item.get("locals", {}))
     assert bit_local == {"type": "Bit", "data": 'Bit("trace-test")', "display": True}
-    returns = [item["call_return"] for item in recording if "call_return" in item]
+    returns = [
+        item["call_return"] for item in recording
+        if "call_return" in item and not item.get("module_return")
+    ]
     assert [item["function"] for item in returns] == [
         "can_move_front", "move", "paint", "get_color"
     ]
     assert all(item["qualified_function"].startswith("Bit.") for item in returns)
+    calls = {
+        event["function_call"]["qualified_function"]: event["function_call"]
+        for event in recording if "function_call" in event
+    }
+    assert calls["Bit.can_move_front"]["arguments"] == {}
+    assert calls["Bit.can_move_front"]["positional_arguments"] == []
+    assert calls["Bit.paint"]["arguments"] == {}
+    assert calls["Bit.paint"]["positional_arguments"] == [{"type": "str", "data": "red"}]
     move_return = next(
         item for item in recording
         if item.get("call_return", {}).get("function") == "move"
     )
     assert move_return["bit"]["pos"] == [0, 1]
     assert move_return["bit"]["world"][0][1] == "white"
-    assert recording[-1]["event"] == "bit_outcome"
+    assert recording[-1]["event"] == "call_return"
+    assert recording[-1]["module_return"] is True
+    assert recording[-1]["call_return"]["qualified_function"] == "solve"
     assert recording[-1]["outcome"]["status"] == "success"
     assert recording[-1]["bit"]["world"][0][1] == "red"
 
@@ -77,6 +90,75 @@ def test_expected_world_comparison_is_attached_as_final_outcome(tmp_path):
     assert recording[-1]["outcome"]["annotations"] is not None
 
 
+def test_decorator_prepares_source_and_records_each_world(tmp_path, monkeypatch):
+    path = tmp_path / "student.py"
+    source = (
+        "from byubit.bit import Bit\n"
+        "@Bit.worlds(Bit.new_world(3, 1, name='World A'), Bit.new_world(3, 1, name='World B'), Bit.new_world(3, 1, name='World A'))\n"
+        "def solve(bit):\n"
+        "    if bit.can_move_front():\n"
+        "        bit.move()\n"
+    )
+    path.write_text(source)
+    namespace = {"__name__": "student", "__file__": str(path)}
+    exec(compile(source, str(path), "exec"), namespace)
+
+    class CaptureRenderer:
+        def render(self, code_file, recordings):
+            self.code_file = code_file
+            self.recordings = recordings
+
+    renderer = CaptureRenderer()
+    monkeypatch.setattr(Bit.new_bit, "renderer", renderer)
+    namespace["solve"](Bit.new_bit)
+
+    assert renderer.code_file == path.resolve()
+    assert list(renderer.recordings) == ["World A", "World B", "World A (2)"]
+    for recording in renderer.recordings.values():
+        assert recording[1]["event"] == "call"
+        assert recording[1]["module_call"] is True
+        assert recording[1]["function_call"]["qualified_function"] == "solve"
+        assert any(event["event"] == "condition" for event in recording)
+        assert recording[-1]["event"] == "call_return"
+        assert recording[-1]["module_return"] is True
+        module_frames = [
+            caller for event in recording for caller in event.get("callers", [])
+            if caller.get("module_call")
+        ]
+        assert module_frames
+        assert all(frame["locals"] == {} for frame in module_frames)
+        assert all(
+            frame["function_call"]["qualified_function"] == "solve"
+            for frame in module_frames
+        )
+
+
+def test_first_call_step_highlights_the_module_call_site(tmp_path, monkeypatch):
+    path = tmp_path / "student.py"
+    source = (
+        "from byubit.bit import Bit\n"
+        "@Bit.worlds(Bit.new_world(2, 1, name='Call site'))\n"
+        "def main(bit):\n"
+        "    bit.move()\n"
+        "if __name__ == 'student':\n"
+        "    main(Bit.new_bit)\n"
+    )
+    path.write_text(source)
+
+    class CaptureRenderer:
+        def render(self, code_file, recordings):
+            self.recordings = recordings
+
+    renderer = CaptureRenderer()
+    monkeypatch.setattr(Bit.new_bit, "renderer", renderer)
+    namespace = {"__name__": "student", "__file__": str(path)}
+    exec(compile(source, str(path), "exec"), namespace)
+
+    first_step = renderer.recordings["Call site"][1]
+    assert first_step["function_call"]["qualified_function"] == "main"
+    assert first_step["lineno"] == 6
+
+
 def test_renderer_creates_tracecode_view_with_bit_panel(tmp_path, monkeypatch):
     _, namespace = _load_student(tmp_path, "def solve(bit):\n    bit.turn_left()\n")
     _, recording = Bit.new_world(1, 1)._evaluate(namespace["solve"], None)
@@ -85,8 +167,9 @@ def test_renderer_creates_tracecode_view_with_bit_panel(tmp_path, monkeypatch):
 
     HTMLRenderer().render(tmp_path / "student.py", {"world": recording})
 
-    view = tmp_path / "student.world.html"
+    view = tmp_path / "student.html"
     html = view.read_text()
+    assert 'id="run-tabs"' in html
     assert "Bit world" in html
     assert "window.renderTracecodePanel" in html
     assert "Call stack" in html

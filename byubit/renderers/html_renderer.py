@@ -26,19 +26,17 @@ class HTMLRenderer(BitRenderer):
         self._panel_script = Path(__file__).with_name('bit_panel.js').read_text()
 
     def render(self, code_file: Path, recordings: dict[str, list[dict]]):
-        """Write one tracecode viewer per world and open the first one."""
-        views = []
-        for name, recording in recordings.items():
-            safe_name = ''.join(char if char.isalnum() or char in '-_' else '_' for char in name)
-            view = code_file.with_name(f'{code_file.stem}.{safe_name}.html')
-            write_html_view(
-                recording,
-                view,
-                panel_title='Bit world',
-                panel_script=self._panel_script,
-            )
-            views.append(view)
-        if views:
-            webbrowser.open(views[0].resolve().as_uri())
-            return views[0].resolve().as_uri()
-        return None
+        """Write one Tracecode viewer with a tab for each world run."""
+        if not recordings:
+            return None
+        first_recording = next(iter(recordings.values()))
+        view = code_file.with_suffix('.html')
+        write_html_view(
+            first_recording,
+            view,
+            panel_title='Bit world',
+            panel_script=self._panel_script,
+            runs=recordings,
+        )
+        webbrowser.open(view.resolve().as_uri())
+        return view.resolve().as_uri()

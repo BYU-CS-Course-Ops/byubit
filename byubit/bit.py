@@ -3,13 +3,14 @@ import functools
 import os
 import re
 import traceback
-from inspect import stack, getfile
+from inspect import currentframe, stack, getfile
 from pathlib import Path
 from typing import Literal
+from contextvars import ContextVar
 
 import webcolors
 
-from tracecode import RecordingLimitExceeded, TraceRecorder
+from tracecode import RecordingLimitExceeded, TraceRecorder, prepare_file
 
 from .renderers.html_renderer import HTMLRenderer
 from .rendering import BitRenderer, Pos
@@ -33,6 +34,7 @@ _orientations = [
 
 MAX_STEP_COUNT = 15_000
 MAX_REPEAT_STATE = 10
+_ANNOTATION_ONLY = ContextVar("bit_annotation_only", default=False)
 
 # For converting simple color codes to color names
 # The simple color codes are used in the Bit world files
@@ -194,16 +196,54 @@ def _compact_bit_values(value, world_name):
     return value
 
 
-def _add_bit_states(recording, initial_state):
+def _add_bit_states(recording, initial_state, entry_point_name):
     current = initial_state
     for snapshot in recording:
         current = _find_bit_state(snapshot) or current
         snapshot["bit"] = current
+        module_frame = {
+            "function": "<module>",
+            "qualified_function": "<module>",
+            "lineno": None,
+            "locals": {},
+            "module_call": True,
+            "function_call": {
+                "qualified_function": entry_point_name,
+                "arguments": {},
+                "positional_arguments": [],
+            },
+        }
+        callers = snapshot.get("callers", [])
+        module_index = next(
+            (index for index, caller in enumerate(callers) if caller.get("function") == "<module>"),
+            None,
+        )
+        if module_index is None:
+            callers.insert(0, module_frame)
+        else:
+            callers[module_index] = module_frame
+        snapshot["callers"] = callers
         world_name = current["name"]
         for key, value in list(snapshot.items()):
             if key != "bit":
                 snapshot[key] = _compact_bit_values(value, world_name)
+        call = snapshot.get("function_call")
+        if call and call.get("qualified_function", "").startswith("Bit."):
+            wrapper_args = call.get("arguments", {}).get("args", {})
+            call["positional_arguments"] = (
+                wrapper_args.get("data", []) if wrapper_args.get("type") == "tuple" else []
+            )
+            call["arguments"] = {}
     return current
+
+
+def _clone_bit(bit):
+    return Bit(
+        bit.name,
+        [[str(cell) for cell in row] for row in bit.world],
+        tuple(int(value) for value in bit.pos),
+        int(bit.orientation),
+    )
 
 
 def _evaluate_all(
@@ -211,23 +251,32 @@ def _evaluate_all(
         bits,
         *args,
         save=None,
+        entry_point_call_line=None,
         **kwargs
 ) -> dict[str, list[dict]]:
     results = {}
     for start_bit, end_bit in bits:
-        if isinstance(start_bit, str):
-            start_bit = _load_bit_from_file(start_bit)
+        start_bit = _load_bit_from_file(start_bit) if isinstance(start_bit, str) else _clone_bit(start_bit)
         if isinstance(end_bit, str):
             end_bit = _load_bit_from_file(end_bit)
+        elif end_bit is not None:
+            end_bit = _clone_bit(end_bit)
 
         name, history = start_bit._evaluate(
             bit_function,
             end_bit,
             *args,
             save=save,
+            entry_point_name=getattr(bit_function, "__name__", "<entry point>"),
+            entry_point_call_line=entry_point_call_line,
             **kwargs
         )
-        results[name] = history
+        unique_name = name
+        suffix = 2
+        while unique_name in results:
+            unique_name = f"{name} ({suffix})"
+            suffix += 1
+        results[unique_name] = history
 
     return results
 
@@ -328,15 +377,49 @@ class Bit:
                 bits.append((bit_world, None))
 
         def decorator(bit_func):
-            file = Path(getfile(bit_func))
+            if _ANNOTATION_ONLY.get():
+                bit_func.__bit_entry_point__ = True
+                return bit_func
+
+            file = Path(getfile(bit_func)).resolve()
 
             @functools.wraps(bit_func)
             def new_function(bit, *args, **kwargs):
-                if isinstance(bit, NewBit):
-                    Bit._results = _evaluate_all(bit_func, bits, *args, **kwargs, **world_kwargs)
-                    bit.renderer.render(file, Bit._results)
-                else:
-                    raise TypeError(f"You must pass Bit.new_bit to your main function.")
+                if not isinstance(bit, NewBit):
+                    raise TypeError("You must pass Bit.new_bit to your main function.")
+
+                caller_frame = currentframe().f_back
+                call_line = (
+                    caller_frame.f_lineno
+                    if caller_frame is not None
+                    and os.path.realpath(caller_frame.f_code.co_filename) == str(file)
+                    else None
+                )
+                del caller_frame
+                prepared = prepare_file(file)
+                namespace = {
+                    "__name__": f"_bit_prepared_{file.stem}",
+                    "__file__": str(file),
+                }
+                token = _ANNOTATION_ONLY.set(True)
+                try:
+                    prepared.execute(namespace)
+                finally:
+                    _ANNOTATION_ONLY.reset(token)
+
+                entry_point = namespace.get(bit_func.__name__)
+                if not callable(entry_point) or not getattr(entry_point, "__bit_entry_point__", False):
+                    raise RuntimeError(f"Could not find prepared Bit entry point {bit_func.__name__!r}")
+
+                Bit._results = _evaluate_all(
+                    entry_point,
+                    bits,
+                    *args,
+                    entry_point_call_line=call_line,
+                    **kwargs,
+                    **world_kwargs,
+                )
+                bit.renderer.render(file, Bit._results)
 
             return new_function
 
@@ -413,7 +496,16 @@ class Bit:
 
         self._register("compare correct!")
 
-    def _evaluate(self, bit_function, other_bit, *args, save=None, **kwargs):
+    def _evaluate(
+        self,
+        bit_function,
+        other_bit,
+        *args,
+        save=None,
+        entry_point_name=None,
+        entry_point_call_line=None,
+        **kwargs,
+    ):
         filename = getattr(getattr(bit_function, "__code__", None), "co_filename", None)
         if filename is None:
             filename = getfile(bit_function)
@@ -424,9 +516,11 @@ class Bit:
         )
         initial_state = _serialize_bit(self)
         outcome = {"status": "success", "message": None, "annotations": None}
+        student_completed = False
         try:
             with recorder:
-                bit_function(self, *args, **kwargs)
+                student_return_value = bit_function(self, *args, **kwargs)
+                student_completed = True
             if other_bit is not None:
                 self._compare(other_bit)
         except RecordingLimitExceeded as ex:
@@ -449,8 +543,61 @@ class Bit:
             if save:
                 self.save(save)
 
-        _add_bit_states(recorder.recording, initial_state)
-        recorder.recording.append({"event": "bit_outcome", "bit": _serialize_bit(self), "outcome": outcome})
+        primary_entry_point = entry_point_name or getattr(bit_function, "__name__", "<entry point>")
+        _add_bit_states(recorder.recording, initial_state, primary_entry_point)
+        recorder.recording.insert(1, {
+            "event": "call",
+            "filename": filename,
+            "lineno": (
+                entry_point_call_line
+                if entry_point_call_line is not None
+                else getattr(getattr(bit_function, "__code__", None), "co_firstlineno", None)
+            ),
+            "function": "<module>",
+            "qualified_function": "<module>",
+            "locals": {},
+            "callers": [],
+            "module_call": True,
+            "function_call": {
+                "qualified_function": primary_entry_point,
+                "arguments": {},
+                "positional_arguments": [],
+            },
+            "bit": initial_state,
+        })
+        if student_completed:
+            return_record = next(
+                (
+                    event for event in reversed(recorder.recording)
+                    if event.get("event") == "return"
+                    and event.get("function") == getattr(bit_function, "__name__", None)
+                ),
+                None,
+            )
+            return_value = (
+                return_record["return"]["value"]
+                if return_record is not None
+                else {"type": "NoneType", "data": None}
+            )
+            recorder.recording.append({
+                "event": "call_return",
+                "filename": filename,
+                "lineno": entry_point_call_line or (return_record or {}).get("lineno"),
+                "function": "<module>",
+                "qualified_function": "<module>",
+                "locals": {},
+                "callers": [],
+                "module_return": True,
+                "call_return": {
+                    "function": primary_entry_point,
+                    "qualified_function": primary_entry_point,
+                    "value": return_value,
+                },
+                "bit": _serialize_bit(self),
+                "outcome": outcome,
+            })
+        elif len(recorder.recording) > 1:
+            recorder.recording[-1]["outcome"] = outcome
         return self.name, recorder.recording
 
     def __getattr__(self, usr_attr):
