@@ -17,8 +17,8 @@ from .rendering import BitRenderer, Pos
 
 
 class NewBit:
-    def __init__(self, renderer: BitRenderer = HTMLRenderer()):
-        self.renderer = renderer
+    def __init__(self, renderer: BitRenderer | None = None):
+        self.renderer = HTMLRenderer() if renderer is None else renderer
 
     def __getattr__(self, item):
         raise Exception('You can only pass Bit.new_bit to a function with an @Bit decorator')
@@ -544,6 +544,11 @@ class Bit:
                 self.save(save)
 
         primary_entry_point = entry_point_name or getattr(bit_function, "__name__", "<entry point>")
+        run_status = (
+            None if other_bit is None
+            else "correct" if outcome["status"] == "success"
+            else "incorrect"
+        )
         _add_bit_states(recorder.recording, initial_state, primary_entry_point)
         recorder.recording.insert(1, {
             "event": "call",
@@ -595,9 +600,11 @@ class Bit:
                 },
                 "bit": _serialize_bit(self),
                 "outcome": outcome,
+                "run_status": run_status,
             })
         elif len(recorder.recording) > 1:
             recorder.recording[-1]["outcome"] = outcome
+            recorder.recording[-1]["run_status"] = run_status
         return self.name, recorder.recording
 
     def __getattr__(self, usr_attr):

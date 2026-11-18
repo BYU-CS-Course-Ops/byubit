@@ -37,6 +37,7 @@ class HTMLRenderer(BitRenderer):
             panel_title='Bit world',
             panel_script=self._panel_script,
             runs=recordings,
+            start_at_end=True,
         )
         webbrowser.open(view.resolve().as_uri())
         return view.resolve().as_uri()

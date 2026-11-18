@@ -1,3 +1,18 @@
+function createBitTriangle(orientation, color, cellSize, size, wrong = false) {
+  const triangle = document.createElement('div');
+  triangle.className = wrong ? 'triangle wrong' : 'triangle';
+  triangle.style.width = '0';
+  triangle.style.height = '0';
+  triangle.style.position = 'absolute';
+  triangle.style.borderLeft = `${size}px solid transparent`;
+  triangle.style.borderRight = `${size}px solid transparent`;
+  triangle.style.borderBottom = `${size * 2}px solid ${color}`;
+  triangle.style.top = `${(cellSize - size * 2) / 2}px`;
+  triangle.style.left = `${(cellSize - size * 2) / 2}px`;
+  triangle.style.transform = ['rotate(90deg)', 'rotate(0deg)', 'rotate(-90deg)', 'rotate(180deg)'][orientation];
+  return triangle;
+}
+
 window.renderTracecodePanel = function (root, snapshot) {
   root.replaceChildren();
   const state = snapshot.bit;
@@ -10,17 +25,21 @@ window.renderTracecodePanel = function (root, snapshot) {
   title.textContent = outcome
     ? `${outcome.status}: ${outcome.message || 'Run finished'}`
     : `${state.name} · (${state.pos[0]}, ${state.pos[1]})`;
+  if (outcome?.status === 'error') title.style.color = 'red';
   root.appendChild(title);
 
   const world = state.world;
   if (!world || !world.length) return;
+  const annotations = snapshot.outcome?.annotations;
   const cellSize = 50;
   const triangleSize = 10;
   const grid = document.createElement('div');
   grid.className = 'grid bit-world-grid';
   grid.style.display = 'grid';
   grid.style.gridTemplateColumns = `repeat(${world[0].length}, ${cellSize}px)`;
-  grid.style.gap = '1px';
+  grid.style.gap = '0';
+  grid.style.borderTop = '1px solid black';
+  grid.style.borderLeft = '1px solid black';
   grid.style.width = 'max-content';
   grid.style.margin = '0 .55rem .55rem';
   for (let row = world.length - 1; row >= 0; row--) {
@@ -30,21 +49,37 @@ window.renderTracecodePanel = function (root, snapshot) {
       cell.style.width = `${cellSize}px`;
       cell.style.height = `${cellSize}px`;
       cell.style.position = 'relative';
-      cell.style.border = '1px solid black';
+      cell.style.boxSizing = 'border-box';
+      cell.style.borderRight = '1px solid black';
+      cell.style.borderBottom = '1px solid black';
       cell.style.backgroundColor = world[row][col];
       if (row === state.pos[0] && col === state.pos[1]) {
-        const triangle = document.createElement('div');
-        triangle.className = 'triangle';
-        triangle.style.width = '0';
-        triangle.style.height = '0';
-        triangle.style.position = 'absolute';
-        triangle.style.borderLeft = `${triangleSize}px solid transparent`;
-        triangle.style.borderRight = `${triangleSize}px solid transparent`;
-        triangle.style.borderBottom = `${triangleSize * 2}px solid cyan`;
-        triangle.style.top = `${(cellSize - triangleSize * 2) / 2}px`;
-        triangle.style.left = `${(cellSize - triangleSize * 2) / 2}px`;
-        triangle.style.transform = ['rotate(90deg)', 'rotate(0deg)', 'rotate(-90deg)', 'rotate(180deg)'][state.orientation];
-        cell.appendChild(triangle);
+        cell.appendChild(createBitTriangle(state.orientation, 'cyan', cellSize, triangleSize));
+      }
+
+      if (annotations?.world?.[row]?.[col] !== undefined
+          && annotations.world[row][col] !== world[row][col]) {
+        const marker = document.createElement('div');
+        marker.className = 'annotation';
+        marker.textContent = '!';
+        marker.style.width = '20px';
+        marker.style.height = '30px';
+        marker.style.borderRadius = '50%';
+        marker.style.position = 'absolute';
+        marker.style.top = '0';
+        marker.style.right = '0';
+        marker.style.display = 'flex';
+        marker.style.alignItems = 'center';
+        marker.style.justifyContent = 'center';
+        marker.style.color = annotations.world[row][col] === 'white' ? 'black' : 'white';
+        marker.style.fontWeight = 'bold';
+        marker.style.backgroundColor = annotations.world[row][col];
+        cell.appendChild(marker);
+      }
+
+      if (annotations?.pos?.[0] === row && annotations.pos[1] === col
+          && (row !== state.pos[0] || col !== state.pos[1])) {
+        cell.appendChild(createBitTriangle(annotations.orientation, '#8bbab5', cellSize, triangleSize, true));
       }
       grid.appendChild(cell);
     }
