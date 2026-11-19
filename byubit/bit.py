@@ -3,20 +3,22 @@ import functools
 import os
 import re
 import traceback
-from copy import deepcopy
-from inspect import stack, getfile
+from inspect import currentframe, stack, getfile
 from pathlib import Path
 from typing import Literal
+from contextvars import ContextVar
 
 import webcolors
 
+from tracecode import RecordingLimitExceeded, TraceRecorder, prepare_file
+
 from .renderers.html_renderer import HTMLRenderer
-from .rendering import BitRenderer, BitHistoryRecord, Pos
+from .rendering import BitRenderer, Pos
 
 
 class NewBit:
-    def __init__(self, renderer: BitRenderer = HTMLRenderer()):
-        self.renderer = renderer
+    def __init__(self, renderer: BitRenderer | None = None):
+        self.renderer = HTMLRenderer() if renderer is None else renderer
 
     def __getattr__(self, item):
         raise Exception('You can only pass Bit.new_bit to a function with an @Bit decorator')
@@ -32,6 +34,7 @@ _orientations = [
 
 MAX_STEP_COUNT = 15_000
 MAX_REPEAT_STATE = 10
+_ANNOTATION_ONLY = ContextVar("bit_annotation_only", default=False)
 
 # For converting simple color codes to color names
 # The simple color codes are used in the Bit world files
@@ -100,6 +103,9 @@ def _registered(func):
         self._register(title)
         return ret
 
+    new_func.__code__ = new_func.__code__.replace(
+        co_name=func.__name__, co_qualname=f"Bit.{func.__name__}"
+    )
     return new_func
 
 
@@ -126,7 +132,144 @@ def _check_extraneous_args(func):
             else:
                 raise
 
+    new_func.__code__ = new_func.__code__.replace(
+        co_name=func.__name__, co_qualname=f"Bit.{func.__name__}"
+    )
     return new_func
+
+
+def _serialize_annotations(annotations):
+    if annotations is None:
+        return None
+    world, pos, orientation = annotations
+    return {
+        "world": [[str(cell) for cell in row] for row in world],
+        "pos": [int(value) for value in pos],
+        "orientation": int(orientation),
+    }
+
+
+def _serialize_bit(bit):
+    return {
+        "name": str(bit.name),
+        "world": [[str(cell) for cell in row] for row in bit.world],
+        "pos": [int(value) for value in bit.pos],
+        "orientation": int(bit.orientation),
+    }
+
+
+def _decode_trace_value(value):
+    if not isinstance(value, dict) or "type" not in value or "data" not in value:
+        return value
+    value_type, data = value["type"], value["data"]
+    if value_type == "dict":
+        return {
+            _decode_trace_value(key): _decode_trace_value(item)
+            for key, item in data
+        }
+    if value_type in ("list", "tuple"):
+        return [_decode_trace_value(item) for item in data]
+    return data
+
+
+def _find_bit_state(snapshot):
+    scopes = [snapshot.get("locals", {})]
+    scopes.extend(caller.get("locals", {}) for caller in reversed(snapshot.get("callers", [])))
+    for scope in scopes:
+        value = scope.get("bit")
+        if isinstance(value, dict) and value.get("type") == "byubit.bit.Bit":
+            return _decode_trace_value(value["data"])
+    return None
+
+
+def _is_none_call_return_event(event):
+    value = event.get("call_return", {}).get("value")
+    return (
+        event.get("event") == "call_return"
+        and isinstance(value, dict)
+        and value.get("type") == "NoneType"
+        and value.get("data") is None
+    )
+
+
+def _filter_none_call_returns(recording):
+    filtered = []
+    pending_console = []
+    for event in recording:
+        if _is_none_call_return_event(event):
+            pending_console.extend(event.get("console", []))
+            continue
+        if pending_console:
+            event.setdefault("console", []).extend(pending_console)
+            pending_console = []
+        filtered.append(event)
+    if pending_console and filtered:
+        filtered[-1].setdefault("console", []).extend(pending_console)
+    recording[:] = filtered
+
+
+def _bit_display_value(world_name):
+    return {"type": "Bit", "data": f'Bit("{world_name}")', "display": True}
+
+
+def _compact_bit_values(value, world_name):
+    if isinstance(value, dict):
+        if value.get("type") == "byubit.bit.Bit":
+            return _bit_display_value(world_name)
+        return {key: _compact_bit_values(item, world_name) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_compact_bit_values(item, world_name) for item in value]
+    return value
+
+
+def _add_bit_states(recording, initial_state, entry_point_name):
+    current = initial_state
+    for snapshot in recording:
+        current = _find_bit_state(snapshot) or current
+        snapshot["bit"] = current
+        module_frame = {
+            "function": "<module>",
+            "qualified_function": "<module>",
+            "lineno": None,
+            "locals": {},
+            "module_call": True,
+            "function_call": {
+                "qualified_function": entry_point_name,
+                "arguments": {},
+                "positional_arguments": [_bit_display_value(initial_state["name"])],
+            },
+        }
+        callers = snapshot.get("callers", [])
+        module_index = next(
+            (index for index, caller in enumerate(callers) if caller.get("function") == "<module>"),
+            None,
+        )
+        if module_index is None:
+            callers.insert(0, module_frame)
+        else:
+            callers[module_index] = module_frame
+        snapshot["callers"] = callers
+        world_name = current["name"]
+        for key, value in list(snapshot.items()):
+            if key != "bit":
+                snapshot[key] = _compact_bit_values(value, world_name)
+        call = snapshot.get("function_call")
+        if call and call.get("qualified_function", "").startswith("Bit."):
+            wrapper_args = call.get("arguments", {}).get("args", {})
+            call["positional_arguments"] = (
+                wrapper_args.get("data", []) if wrapper_args.get("type") == "tuple" else []
+            )
+            call["arguments"] = {}
+    return current
+
+
+def _clone_bit(bit):
+    return Bit(
+        bit.name,
+        [[str(cell) for cell in row] for row in bit.world],
+        tuple(int(value) for value in bit.pos),
+        int(bit.orientation),
+    )
 
 
 def _evaluate_all(
@@ -134,23 +277,32 @@ def _evaluate_all(
         bits,
         *args,
         save=None,
+        entry_point_call_line=None,
         **kwargs
-) -> dict[str, list[BitHistoryRecord]]:
+) -> dict[str, list[dict]]:
     results = {}
     for start_bit, end_bit in bits:
-        if isinstance(start_bit, str):
-            start_bit = _load_bit_from_file(start_bit)
+        start_bit = _load_bit_from_file(start_bit) if isinstance(start_bit, str) else _clone_bit(start_bit)
         if isinstance(end_bit, str):
             end_bit = _load_bit_from_file(end_bit)
+        elif end_bit is not None:
+            end_bit = _clone_bit(end_bit)
 
         name, history = start_bit._evaluate(
             bit_function,
             end_bit,
             *args,
             save=save,
+            entry_point_name=getattr(bit_function, "__name__", "<entry point>"),
+            entry_point_call_line=entry_point_call_line,
             **kwargs
         )
-        results[name] = history
+        unique_name = name
+        suffix = 2
+        while unique_name in results:
+            unique_name = f"{name} ({suffix})"
+            suffix += 1
+        results[unique_name] = history
 
     return results
 
@@ -251,15 +403,49 @@ class Bit:
                 bits.append((bit_world, None))
 
         def decorator(bit_func):
-            file = Path(getfile(bit_func))
+            if _ANNOTATION_ONLY.get():
+                bit_func.__bit_entry_point__ = True
+                return bit_func
+
+            file = Path(getfile(bit_func)).resolve()
 
             @functools.wraps(bit_func)
             def new_function(bit, *args, **kwargs):
-                if isinstance(bit, NewBit):
-                    Bit._results = _evaluate_all(bit_func, bits, *args, **kwargs, **world_kwargs)
-                    bit.renderer.render(file, Bit._results)
-                else:
-                    raise TypeError(f"You must pass Bit.new_bit to your main function.")
+                if not isinstance(bit, NewBit):
+                    raise TypeError("You must pass Bit.new_bit to your main function.")
+
+                caller_frame = currentframe().f_back
+                call_line = (
+                    caller_frame.f_lineno
+                    if caller_frame is not None
+                    and os.path.realpath(caller_frame.f_code.co_filename) == str(file)
+                    else None
+                )
+                del caller_frame
+                prepared = prepare_file(file)
+                namespace = {
+                    "__name__": f"_bit_prepared_{file.stem}",
+                    "__file__": str(file),
+                }
+                token = _ANNOTATION_ONLY.set(True)
+                try:
+                    prepared.execute(namespace)
+                finally:
+                    _ANNOTATION_ONLY.reset(token)
+
+                entry_point = namespace.get(bit_func.__name__)
+                if not callable(entry_point) or not getattr(entry_point, "__bit_entry_point__", False):
+                    raise RuntimeError(f"Could not find prepared Bit entry point {bit_func.__name__!r}")
+
+                Bit._results = _evaluate_all(
+                    entry_point,
+                    bits,
+                    *args,
+                    entry_point_call_line=call_line,
+                    **kwargs,
+                    **world_kwargs,
+                )
+                bit.renderer.render(file, Bit._results)
 
             return new_function
 
@@ -285,36 +471,19 @@ class Bit:
         self.n_cols = len(world[0])
 
         self.state_counts = {}  # for infinite loop detection
-        self.history = []
-        self._register("initial state")
-
-    def _record(self, name, message=None, annotations=None, ex=None):
-        filename, line_number = _get_caller_info(ex=ex)
-        return BitHistoryRecord(
-            name=name,
-            error_message=message,
-            world=deepcopy(self.world),
-            pos=deepcopy(self.pos),
-            orientation=self.orientation,
-            annotations=deepcopy(annotations) if annotations is not None else None,
-            filename=os.path.basename(filename),
-            line_number=line_number
-        )
+        self.operation_count = 0
 
     def _register(self, name, message=None, annotations=None, ex=None):
-        self.history.append(self._record(name, message, annotations, ex))
-
+        self.operation_count += 1
         world_tuple = tuple(tuple(row) for row in self.world)
-
-        bit_state = (name, world_tuple, self.pos, self.orientation)
-
+        pos_tuple = tuple(int(value) for value in self.pos)
+        bit_state = (name, world_tuple, pos_tuple, int(self.orientation))
         self.state_counts[bit_state] = self.state_counts.get(bit_state, 0) + 1
 
         if message is None and self.state_counts[bit_state] >= MAX_REPEAT_STATE:
             message = "Bit's been doing the same thing for a while. Is he stuck in an infinite loop?"
             raise BitInfiniteLoopException(message, annotations)
-
-        elif message is None and len(self.history) > MAX_STEP_COUNT:
+        elif message is None and self.operation_count > MAX_STEP_COUNT:
             message = "Bit has done too many things. Is he stuck in an infinite loop?"
             raise BitInfiniteLoopException(message, annotations)
 
@@ -354,43 +523,103 @@ class Bit:
         self._register("compare correct!")
 
     def _evaluate(
-            self,
-            bit_function,
-            other_bit,
-            *args,
-            save=None,
-            **kwargs
-    ) -> tuple[str, list[BitHistoryRecord]]:
+        self,
+        bit_function,
+        other_bit,
+        *args,
+        save=None,
+        entry_point_name=None,
+        entry_point_call_line=None,
+        **kwargs,
+    ):
+        filename = getattr(getattr(bit_function, "__code__", None), "co_filename", None)
+        if filename is None:
+            filename = getfile(bit_function)
+        recorder = TraceRecorder(
+            serializers=[(Bit, _serialize_bit)],
+            target_file=filename,
+            max_snapshots=100_000,
+        )
+        initial_state = _serialize_bit(self)
+        outcome = {"status": "success", "message": None, "annotations": None}
+        student_completed = False
         try:
-            bit_function(self, *args, **kwargs)
-
+            with recorder:
+                student_return_value = bit_function(self, *args, **kwargs)
+                student_completed = True
             if other_bit is not None:
                 self._compare(other_bit)
-
+        except RecordingLimitExceeded as ex:
+            outcome = {"status": "error", "message": f"Execution recording limit exceeded: {ex}", "annotations": None}
         except BitInfiniteLoopException as ex:
             print(ex)
-            self._register("infinite loop 😵", str(ex), ex.annotations)
-
+            outcome = {"status": "error", "message": str(ex), "annotations": _serialize_annotations(ex.annotations)}
         except BitComparisonException as ex:
-            self._register("comparison error", str(ex), ex.annotations)
-
+            outcome = {"status": "error", "message": str(ex), "annotations": _serialize_annotations(ex.annotations)}
         except MoveOutOfBoundsException as ex:
             print(ex)
-            self._register("move out of bounds", str(ex), ex=ex)
-
+            outcome = {"status": "error", "message": str(ex), "annotations": None}
         except MoveBlockedByBlackException as ex:
             print(ex)
-            self._register("move blocked", str(ex), ex=ex)
-
+            outcome = {"status": "error", "message": str(ex), "annotations": None}
         except Exception as ex:
             print(ex)
-            self._register("error", str(ex), ex=ex)
-
+            outcome = {"status": "error", "message": str(ex), "annotations": None}
         finally:
             if save:
                 self.save(save)
 
-        return self.name, self.history
+        _filter_none_call_returns(recorder.recording)
+        primary_entry_point = entry_point_name or getattr(bit_function, "__name__", "<entry point>")
+        run_status = (
+            None if other_bit is None
+            else "correct" if outcome["status"] == "success"
+            else "incorrect"
+        )
+        _add_bit_states(recorder.recording, initial_state, primary_entry_point)
+        recorder.recording.insert(1, {
+            "event": "call",
+            "filename": filename,
+            "lineno": (
+                entry_point_call_line
+                if entry_point_call_line is not None
+                else getattr(getattr(bit_function, "__code__", None), "co_firstlineno", None)
+            ),
+            "function": "<module>",
+            "qualified_function": "<module>",
+            "locals": {},
+            "callers": [],
+            "module_call": True,
+            "function_call": {
+                "qualified_function": primary_entry_point,
+                "arguments": {},
+                "positional_arguments": [_bit_display_value(initial_state["name"])],
+            },
+            "bit": initial_state,
+        })
+        if student_completed:
+            recorder.recording.append({
+                "event": "bit_complete",
+                "filename": filename,
+                "lineno": (
+                    entry_point_call_line
+                    if entry_point_call_line is not None
+                    else getattr(getattr(bit_function, "__code__", None), "co_firstlineno", None)
+                ),
+                "function": primary_entry_point,
+                "qualified_function": primary_entry_point,
+                "locals": {},
+                "callers": [],
+                "module_complete": True,
+                "completion": f"Function {primary_entry_point}() completed",
+                "bit": _serialize_bit(self),
+                "outcome": outcome,
+                "run_status": run_status,
+            })
+        elif len(recorder.recording) > 1:
+            recorder.recording[-1]["outcome"] = outcome
+            recorder.recording[-1]["run_status"] = run_status
+        return self.name, recorder.recording
 
     def __getattr__(self, usr_attr):
         """Checks if a non-existent method or property is accessed, and gives a suggestion"""

@@ -1,6 +1,17 @@
 /.idea/
 /dist/
-/poetry.lock
+.venv/
 dev/dist/
 dev/build/
 *.egg-info
+
+# Generated demo HTML
+demos/demo*.html
+
+# Agent scratch work
+.agents/scratch/
+
+# Python-generated files
+__pycache__/
+*.py[cod]
+.pytest_cache/

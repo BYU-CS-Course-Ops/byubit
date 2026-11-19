@@ -1,9 +1,9 @@
-import datetime
-import json
 import webbrowser
 from pathlib import Path
 
-from ..rendering import BitRenderer, BitHistoryRecord
+from tracecode import write_html_view
+
+from ..rendering import BitRenderer
 
 
 def quote(url):
@@ -23,23 +23,21 @@ def quote(url):
 
 class HTMLRenderer(BitRenderer):
     def __init__(self):
-        self._html_folder = Path(__file__).parent / 'html'
-        self._html_template = self._html_folder / 'render_bit.html'
+        self._panel_script = Path(__file__).with_name('bit_panel.js').read_text()
 
-    def render(self, code_file: Path, histories: dict[str, list[BitHistoryRecord]]):
-        """
-        Present the history.
-        """
-        bit_view = code_file.with_suffix('.html')
-        bit_view.write_text(
-            self._html_template
-            .read_text()
-            .replace('"%%DATA%%"', json.dumps(histories))
-            .replace("%%TITLE%%", code_file.name)
-            .replace('%%CODE%%', code_file.read_text())
-            .replace('%%TIMESTAMP%%', str(datetime.datetime.now()))
+    def render(self, code_file: Path, recordings: dict[str, list[dict]]):
+        """Write one Tracecode viewer with a tab for each world run."""
+        if not recordings:
+            return None
+        first_recording = next(iter(recordings.values()))
+        view = code_file.with_suffix('.html')
+        write_html_view(
+            first_recording,
+            view,
+            panel_title='Bit world',
+            panel_script=self._panel_script,
+            runs=recordings,
+            start_at_end=True,
         )
-
-        url = f'file://{quote(str(bit_view))}'
-        webbrowser.open(url)
-        return url
+        webbrowser.open(view.resolve().as_uri())
+        return view.resolve().as_uri()
