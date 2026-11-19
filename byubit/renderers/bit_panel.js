@@ -14,6 +14,11 @@ function createBitTriangle(orientation, color, cellSize, size, wrong = false) {
 }
 
 window.renderTracecodePanel = function (root, snapshot) {
+  root._bitPanelSnapshot = snapshot;
+  if (!root._bitPanelResizeHandler) {
+    root._bitPanelResizeHandler = () => window.renderTracecodePanel(root, root._bitPanelSnapshot);
+    window.addEventListener('resize', root._bitPanelResizeHandler);
+  }
   root.replaceChildren();
   const state = snapshot.bit;
   if (!state) return;
@@ -31,8 +36,17 @@ window.renderTracecodePanel = function (root, snapshot) {
   const world = state.world;
   if (!world || !world.length) return;
   const annotations = snapshot.outcome?.annotations;
-  const cellSize = 50;
-  const triangleSize = 10;
+  const baseCellSize = 50;
+  const maxPanelHeight = parseFloat(getComputedStyle(root).maxHeight) || window.innerHeight * 0.9;
+  const titleHeight = title.getBoundingClientRect().height;
+  const availableWidth = Math.max(1, root.clientWidth - 2 * 8.8 - 1);
+  const availableHeight = Math.max(1, maxPanelHeight - titleHeight - 8.8 - 1);
+  const cellSize = Math.max(1, Math.min(
+    baseCellSize,
+    availableWidth / world[0].length,
+    availableHeight / world.length,
+  ));
+  const triangleSize = Math.min(10, cellSize * 0.2);
   const grid = document.createElement('div');
   grid.className = 'grid bit-world-grid';
   grid.style.display = 'grid';
@@ -62,8 +76,9 @@ window.renderTracecodePanel = function (root, snapshot) {
         const marker = document.createElement('div');
         marker.className = 'annotation';
         marker.textContent = '!';
-        marker.style.width = '20px';
-        marker.style.height = '30px';
+        marker.style.width = `${cellSize * 0.4}px`;
+        marker.style.height = `${cellSize * 0.6}px`;
+        marker.style.fontSize = `${cellSize * 0.32}px`;
         marker.style.borderRadius = '50%';
         marker.style.position = 'absolute';
         marker.style.top = '0';

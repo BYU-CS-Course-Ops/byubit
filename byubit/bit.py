@@ -182,14 +182,40 @@ def _find_bit_state(snapshot):
     return None
 
 
+def _is_none_call_return_event(event):
+    value = event.get("call_return", {}).get("value")
+    return (
+        event.get("event") == "call_return"
+        and isinstance(value, dict)
+        and value.get("type") == "NoneType"
+        and value.get("data") is None
+    )
+
+
+def _filter_none_call_returns(recording):
+    filtered = []
+    pending_console = []
+    for event in recording:
+        if _is_none_call_return_event(event):
+            pending_console.extend(event.get("console", []))
+            continue
+        if pending_console:
+            event.setdefault("console", []).extend(pending_console)
+            pending_console = []
+        filtered.append(event)
+    if pending_console and filtered:
+        filtered[-1].setdefault("console", []).extend(pending_console)
+    recording[:] = filtered
+
+
+def _bit_display_value(world_name):
+    return {"type": "Bit", "data": f'Bit("{world_name}")', "display": True}
+
+
 def _compact_bit_values(value, world_name):
     if isinstance(value, dict):
         if value.get("type") == "byubit.bit.Bit":
-            return {
-                "type": "Bit",
-                "data": f'Bit("{world_name}")',
-                "display": True,
-            }
+            return _bit_display_value(world_name)
         return {key: _compact_bit_values(item, world_name) for key, item in value.items()}
     if isinstance(value, list):
         return [_compact_bit_values(item, world_name) for item in value]
@@ -210,7 +236,7 @@ def _add_bit_states(recording, initial_state, entry_point_name):
             "function_call": {
                 "qualified_function": entry_point_name,
                 "arguments": {},
-                "positional_arguments": [],
+                "positional_arguments": [_bit_display_value(initial_state["name"])],
             },
         }
         callers = snapshot.get("callers", [])
@@ -543,6 +569,7 @@ class Bit:
             if save:
                 self.save(save)
 
+        _filter_none_call_returns(recorder.recording)
         primary_entry_point = entry_point_name or getattr(bit_function, "__name__", "<entry point>")
         run_status = (
             None if other_bit is None
@@ -566,38 +593,25 @@ class Bit:
             "function_call": {
                 "qualified_function": primary_entry_point,
                 "arguments": {},
-                "positional_arguments": [],
+                "positional_arguments": [_bit_display_value(initial_state["name"])],
             },
             "bit": initial_state,
         })
         if student_completed:
-            return_record = next(
-                (
-                    event for event in reversed(recorder.recording)
-                    if event.get("event") == "return"
-                    and event.get("function") == getattr(bit_function, "__name__", None)
-                ),
-                None,
-            )
-            return_value = (
-                return_record["return"]["value"]
-                if return_record is not None
-                else {"type": "NoneType", "data": None}
-            )
             recorder.recording.append({
-                "event": "call_return",
+                "event": "bit_complete",
                 "filename": filename,
-                "lineno": entry_point_call_line or (return_record or {}).get("lineno"),
-                "function": "<module>",
-                "qualified_function": "<module>",
+                "lineno": (
+                    entry_point_call_line
+                    if entry_point_call_line is not None
+                    else getattr(getattr(bit_function, "__code__", None), "co_firstlineno", None)
+                ),
+                "function": primary_entry_point,
+                "qualified_function": primary_entry_point,
                 "locals": {},
                 "callers": [],
-                "module_return": True,
-                "call_return": {
-                    "function": primary_entry_point,
-                    "qualified_function": primary_entry_point,
-                    "value": return_value,
-                },
+                "module_complete": True,
+                "completion": f"Function {primary_entry_point}() completed",
                 "bit": _serialize_bit(self),
                 "outcome": outcome,
                 "run_status": run_status,
